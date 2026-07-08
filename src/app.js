@@ -19,6 +19,7 @@ app.use(xssSanitize);
 
 // apis
 app.get("/api/health", (req, res) => res.status(200).json("API is Healthy"));
+app.use("/api/v1/auth", require("./routes/auth.route"));
 
 app.use(errorHandler);
 app.use(notFound);

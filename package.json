@@ -5,7 +5,8 @@
   "app": "./src/app.js",
   "scripts": {
     "watch": "nodemon ./src/app.js",
-    "start": "node ./src/app.js"
+    "start": "node ./src/app.js",
+    "seed:admin": "node ./src/script/createAdmin.js"
   },
   "keywords": [],
   "author": "",

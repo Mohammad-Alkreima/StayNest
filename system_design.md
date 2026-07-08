@@ -19,51 +19,109 @@ SuperAdmin, Guest, Host
         type: String,
         enum: [guest, host, admin]
     }
+    phone: String,
+    profileImage: String ,
+    hasDispute: { 
+        type: Boolean,
+        default: false
+    },
+    totalBookings: {
+        type: Number,
+        default: 0
+    },
+    isDeleted: {
+        type: Boolean,
+        default: false
+    }
 } 
 
 - Property: {
-    title,
-    description,
-    location,
-    pricePerNight,
-    amenities: [wifi, pool, .....],
-    cleaningFee,
-    serviceFee,
-    hostId: {
-        type: mongoose.schema.Types.ObjectId,
-        ref: "User"
+    propertyId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'Property'
+    },
+    guestId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'User'
+    },
+    startDate: Date,
+    endDate: Date,
+    numberOfNights: Number,
+    totalPrice: Number,
+    status: { 
+        type: String, 
+        enum: ['pending', 'confirmed', 'cancelled', 'completed'], 
+        default: 'pending' 
+    },
+    paymentMethod: { 
+        type: String, 
+        enum: ['creditCard', 'bankTransfer', 'cash', 'paypal'] 
+    },
+    paymentStatus: { 
+        type: String, 
+        enum: ['paid', 'unpaid', 'pending'], 
+        default: 'pending' 
+    },
+    isDeleted: {
+        type: Boolean,
+        default: false
     }
 }
 
 - Booking: {
-    staetDate,
-    endDate,
-    totalPrice,
-    status: {
-        type: String,
-        enum: [free, pending, confirmed, cancelled],
-        default: free
-    }
-    properyId: {
-        type: mongoose.schema.Types.ObjectId,
-        ref: "Property",
-    }
-    guestId: {
-        type: mongoose.schema.Types.ObjectId,
-        ref: "User"
+    propertyId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'Property'
+    },
+    guestId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'User'
+    },
+    startDate: Date,
+    endDate: Date,
+    numberOfNights: Number,
+    totalPrice: Number,
+    status: { 
+        type: String, 
+        enum: ['pending', 'confirmed', 'cancelled', 'completed'], 
+        default: 'pending' 
+    },
+    paymentMethod: { 
+        type: String, 
+        enum: ['creditCard', 'bankTransfer', 'cash', 'paypal'] 
+    },
+    paymentStatus: { 
+        type: String, 
+        enum: ['paid', 'unpaid', 'pending'], 
+        default: 'pending' 
+    },
+    isDeleted: {
+        type: Boolean,
+        default: false
     }
 }
 
 - Review: {
-    guestRating,
-    hostRating,
-    guestComment,
-    hostComment,
-    createdAt,
-    bookingId: {
-        type: mongoose.schema.Types.ObjectId,
-        ref: "Booking"
-    }
+    bookingId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'Booking'
+    },
+    guestId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'User'
+    },
+    hostId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'User'
+    },
+    rating: { 
+        type: Number, 
+        min: 1, 
+        max: 5 
+    },
+    comment: String ,
+    isVisible: Boolean},
+    visibleFrom: Date
 }
 
 ## Relationships:
