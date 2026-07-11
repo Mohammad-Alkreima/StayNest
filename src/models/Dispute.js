@@ -4,16 +4,16 @@ const disputeSchema = new mongoose.Schema({
     bookingId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Booking",
-        required: true
+        required: [true, "BookingId is required"]
     },
     reporterId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
-        required: true
+        required: [true, "UserId is required"]
     }, // من قدم الشكوى
     reason: {
         type: String,
-        required: true
+        required: [true, "Reason is required"]
     }, // سبب النزاع
     status: {
         type: String,

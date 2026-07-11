@@ -4,27 +4,28 @@ const bookingSchema = new mongoose.Schema({
     propertyId: { 
         type: mongoose.Schema.Types.ObjectId, 
         ref: "Property", 
-        required: true 
+        required: [true, "PropertyId is required"] 
     },
     guestId: { 
         type: mongoose.Schema.Types.ObjectId, 
         ref: "User", 
-        required: true 
+        required: [true, "GuestId is required"] 
     },
     startDate: { 
         type: Date, 
-        required: true },
+        required: [true, "Statrt date is required"]
+    },
     endDate: { 
         type: Date, 
-        required: true 
+        required: [true, "End date is required"] 
     },
     numberOfNights: { 
         type: Number, 
-        required: true 
+        required: [true, "Number of nights is required"] 
     },
     totalPrice: { 
         type: Number, 
-        required: true 
+        required: [true, "Total price is required"] 
     },
     status: { 
         type: String, 
@@ -33,7 +34,8 @@ const bookingSchema = new mongoose.Schema({
     },
     paymentMethod: { 
         type: String, 
-        enum: ["creditCard", "bankTransfer", "cash", "paypal"] 
+        enum: ["creditCard", "bankTransfer", "cash", "paypal"],
+        default: "bankTransfer"
     },
     paymentStatus: { 
         type: String, 
