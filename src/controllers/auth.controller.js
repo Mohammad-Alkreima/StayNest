@@ -83,7 +83,10 @@ class AuthController {
 
         return res.status(201).json({
             message: "Logged In Successfully",
-            user
+            user: {
+                name: user.name,
+                role: user.role
+            }
         })
     }
 
@@ -125,7 +128,7 @@ class AuthController {
             profileImage: req.body.profileImage
         };
 
-        const updatedUser = await User.findByIdAndUpdate(loggedInUserId, updates, { new: true }).select("-password");
+        const updatedUser = await User.findByIdAndUpdate(loggedInUserId, updates, { new: true, runValidators: true}).select("-password");
 
         return res.status(200).json({
             message: "Updated Successfully",

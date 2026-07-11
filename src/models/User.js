@@ -3,19 +3,21 @@ const mongoose = require("mongoose");
 const userSchema = new mongoose.Schema({
     name: {
         type: String,
-        required: true,
+        required: [true, "Name is reuired"],
         trim: true
     },
     email: {
         type: String,
-        required: true,
-        unique: true,
+        required: [true, "Email is reqired"],
+        unique: [true, "Email is already exsist"],
+        match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, "Invalid email"],
         lowercase: true,
         trim: true
     },
     password: {
         type: String,
-        required: true
+        minLength: 8,
+        required: [true, "password is required"]
     },
     role: {
         type: String,
@@ -45,5 +47,16 @@ const userSchema = new mongoose.Schema({
 }, {
     timestamps: true
 });
-// userSchema.pre
+
+userSchema.pre("save", async function(next) {
+    // إذا كانت كلمة السر تبدأ بـ $argon2، فهذا يعني أنها مشفرة بالفعل!
+    if (this.password.startsWith("$argon2")) {
+        return next();
+    }
+    
+    // غير ذلك، قم بتشفيرها
+    this.password = await argon2.hash(this.password);
+    next();
+});
+
 module.exports = mongoose.model("User", userSchema);

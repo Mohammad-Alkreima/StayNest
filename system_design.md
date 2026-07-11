@@ -124,6 +124,34 @@ SuperAdmin, Guest, Host
     visibleFrom: Date
 }
 
+- Dispute: {
+    bookingId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Booking",
+        required: true
+    },
+    reporterId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true
+    },
+    reason: {
+        type: String,
+        required: true
+    },
+    status: {
+        type: String,
+        enum: ["open", "in-progress", "resolved"],
+        default: "open"
+    },
+    adminNotes:String
+}, {
+    timestamps: true
+};
+
+module.exports = mongoose.model("Dispute", disputeSchema);
+}
+
 ## Relationships:
 User(host) to Property (1:M): One host can own multiple properties.
 
@@ -132,3 +160,7 @@ User(guset) to Booking (1:M): One guest can make multiple bookings.
 Property to Booking (1:M): One property can have multiple bookings.
 
 Booking to Review (1:1): Each booking results in exactly one review entity.
+
+User(guset) to Disput (1: M): One guest can have multiplre disputs.
+
+Disput to Booking (1:1): Each disput releated one booking

@@ -4,20 +4,20 @@ const propertySchema = new mongoose.Schema({
     hostId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
-        required: true
+        required: [true, "HostId is required"]
     },
     title: {
         type: String,
-        required: true
+        required: [true, "Title is required"]
     },
     description: String ,
     location: { 
         type: String,
-        required: true
+        required: [true, "Location is required"]
     },
     pricePerNight: { 
         type: Number,
-        required: true 
+        required: [true, "Price per night is required"] 
     },
     cleaningFee: { 
         type: Number,
@@ -29,7 +29,8 @@ const propertySchema = new mongoose.Schema({
     },
     maxGuests: { 
         type: Number, 
-        required: true },
+        required: [true, "Max Guests is required"]
+    },
     images: [String],
     status: { 
         type: String, 
