@@ -116,107 +116,139 @@ class propertyController {
     });
   };
   getAllProperties = async (req, res) => {
-    let filterObj = { isDeleted: false, status: "available" };
-    const allowedFilters = [
-      "title",
-      "location",
-      "minPrice",
-      "maxPrice",
-      "maxGuests",
-      "amenities",
-      "status",
-    ];
-    const safeQuery = {};
-    for (const key in req.query) {
-      if (allowedFilters.includes(key)) {
-        // تطهير القيمة إذا كانت نصية لضمان عدم إرسال كائنات (Objects) خبيثة تسبب NoSQL Injection
-        safeQuery[key] =
-          typeof req.query[key] === "string"
-            ? req.query[key].trim()
-            : req.query[key];
-      }
-    }
-    if (safeQuery.title && typeof safeQuery.title === "string") {
-      const sanitizedTitle = safeQuery.title.replace(
-        /[-\/\\^$*+?.()|[\]{}]/g,
-        "\\$&",
-      ); // حماية ضد الـ ReDoS
-      filterObj.title = new RegExp(sanitizedTitle, "i"); // 'i' تعني غير حساس لحالة الأحرف
-    }
+    try {
+      let filterObj = { isDeleted: false, status: "available" };
 
-    if (safeQuery.location && typeof safeQuery.location === "string") {
-      const sanitizedLocation = safeQuery.location.replace(
-        /[-\/\\^$*+?.()|[\]{}]/g,
-        "\\$&",
-      );
-      filterObj.location = new RegExp(sanitizedLocation, "i");
-    }
-
-    // ب. الفلترة الرقمية الديناميكية للسعر (Price Range)
-    if (safeQuery.minPrice || safeQuery.maxPrice) {
-      filterObj.pricePerNight = {};
-
-      if (safeQuery.minPrice) {
-        const min = Number(safeQuery.minPrice);
-        if (!isNaN(min) && min >= 0) filterObj.pricePerNight.$gte = min;
-      }
-
-      if (safeQuery.maxPrice) {
-        const max = Number(safeQuery.maxPrice);
-        if (!isNaN(max) && max > 0) filterObj.pricePerNight.$lte = max;
-      }
-
-      // إذا لم يتم تمرير أرقام صالحة، نحذف القيد تماماً تلافياً للأخطاء
-      if (Object.keys(filterObj.pricePerNight).length === 0) {
-        delete filterObj.pricePerNight;
-      }
-    }
-
-    // ج. الفلترة بحسب عدد الضيوف (الاستيعاب على الأقل)
-    if (safeQuery.maxGuests) {
-      const guests = Number(safeQuery.maxGuests);
-      if (!isNaN(guests) && guests > 0) {
-        filterObj.maxGuests = { $gte: guests };
-      }
-    }
-
-    // د. الفلترة الديناميكية داخل المصفوفات (الميزات المطلوبة مثل: Wifi, Pool)
-    // الفرونت إند يرسلها هكذا: /properties?amenities=Wifi,Pool
-    if (safeQuery.amenities && typeof safeQuery.amenities === "string") {
-      const amenitiesArray = safeQuery.amenities
-        .split(",")
-        .map((item) => item.trim());
-      // $all تضمن أن العقار يحتوي على جميع الميزات المطلوبة معاً
-      filterObj.amenities = { $all: amenitiesArray };
-    }
-
-    // --- تنفيذ الاستعلام والـ Pagination والـ Sorting ---
-
-    // إمكانية الترتيب الديناميكي (مثلاً حسب السعر الأدنى أو الأحدث)
-    let sortBy = "-createdAt"; // الافتراضي: الأحدث أولاً
-    if (req.query.sort && typeof req.query.sort === "string") {
-      const allowedSortFields = [
-        "pricePerNight",
-        "-pricePerNight",
-        "createdAt",
-        "-createdAt",
+      // 1. إضافة المعاملات الجغرافية الجديدة للفلاتر المسموحة (lng, lat, distance)
+      const allowedFilters = [
+        "title",
+        "location", // سيبقى للبحث النصي العادي كبديل (Fallback)
+        "minPrice",
+        "maxPrice",
+        "maxGuests",
+        "amenities",
+        "status",
+        "lng", // خط الطول ممرر من الفرونت إند
+        "lat", // دائرة العرض ممررة من الفرونت إند
+        "distance", // مسافة البحث بالكيلومتر (اختياري)
       ];
-      if (allowedSortFields.includes(req.query.sort)) {
-        sortBy = req.query.sort;
+
+      const safeQuery = {};
+      for (const key in req.query) {
+        if (allowedFilters.includes(key)) {
+          safeQuery[key] =
+            typeof req.query[key] === "string"
+              ? req.query[key].trim()
+              : req.query[key];
+        }
       }
+
+      // 🌍 [ميزة جديدة] أ. الفلترة الجغرافية (Geospatial Filter)
+      // إذا قام الفرونت إند بإرسال الإحداثيات الجغرافية بدقة
+      if (safeQuery.lng && safeQuery.lat) {
+        const longitude = Number(safeQuery.lng);
+        const latitude = Number(safeQuery.lat);
+
+        // المسافة الافتراضية للبحث إذا لم يحددها المستخدم (مثلاً 10 كم)
+        // نضرب بـ 1000 لأن المونغو يتعامل بالمتر
+        const maxDistanceInMeters = (Number(safeQuery.distance) || 10) * 1000;
+
+        if (!isNaN(longitude) && !isNaN(latitude)) {
+          filterObj["location.coordinates"] = {
+            $near: {
+              $geometry: {
+                type: "Point",
+                coordinates: [longitude, latitude], // الترتيب الإجباري لـ GeoJSON: [الطول, العرض]
+              },
+              $maxDistance: maxDistanceInMeters, // النطاق الأقصى للبحث بالمتر
+            },
+          };
+        }
+      }
+      // ↩️ بديل (Fallback): إذا لم يرسل إحداثيات وأرسل نص عادي، نبحث بالـ RegEx القديم
+      else if (safeQuery.location && typeof safeQuery.location === "string") {
+        const sanitizedLocation = safeQuery.location.replace(
+          /[-\/\\^$*+?.()|[\]{}]/g,
+          "\\$&",
+        );
+        // هنا نفترض أن حقل location يحتوي على address نصي بداخل الـ embedded schema
+        filterObj["location.address"] = new RegExp(sanitizedLocation, "i");
+      }
+
+      // ب. الفلترة بالاسم (حماية ضد ReDoS)
+      if (safeQuery.title && typeof safeQuery.title === "string") {
+        const sanitizedTitle = safeQuery.title.replace(
+          /[-\/\\^$*+?.()|[\]{}]/g,
+          "\\$&",
+        );
+        filterObj.title = new RegExp(sanitizedTitle, "i");
+      }
+
+      // ج. الفلترة الرقمية الديناميكية للسعر
+      if (safeQuery.minPrice || safeQuery.maxPrice) {
+        filterObj.pricePerNight = {};
+        if (safeQuery.minPrice) {
+          const min = Number(safeQuery.minPrice);
+          if (!isNaN(min) && min >= 0) filterObj.pricePerNight.$gte = min;
+        }
+        if (safeQuery.maxPrice) {
+          const max = Number(safeQuery.maxPrice);
+          if (!isNaN(max) && max > 0) filterObj.pricePerNight.$lte = max;
+        }
+        if (Object.keys(filterObj.pricePerNight).length === 0) {
+          delete filterObj.pricePerNight;
+        }
+      }
+
+      // د. الفلترة بحسب عدد الضيوف
+      if (safeQuery.maxGuests) {
+        const guests = Number(safeQuery.maxGuests);
+        if (!isNaN(guests) && guests > 0) {
+          filterObj.maxGuests = { $gte: guests };
+        }
+      }
+
+      // هـ. الفلترة الديناميكية داخل مصفوفة الميزات
+      if (safeQuery.amenities && typeof safeQuery.amenities === "string") {
+        const amenitiesArray = safeQuery.amenities
+          .split(",")
+          .map((item) => item.trim());
+        filterObj.amenities = { $all: amenitiesArray };
+      }
+
+      // --- الـ Sorting ---
+      let sortBy = "-createdAt";
+      if (req.query.sort && typeof req.query.sort === "string") {
+        const allowedSortFields = [
+          "pricePerNight",
+          "-pricePerNight",
+          "createdAt",
+          "-createdAt",
+        ];
+        if (allowedSortFields.includes(req.query.sort)) {
+          sortBy = req.query.sort;
+        }
+      }
+
+      // جلب البيانات مع عمل الـ Populate
+      const properties = await Property.find(filterObj)
+        .populate("hostId", "name email")
+        .sort(sortBy);
+
+      return res.status(200).json({
+        success: true,
+        count: properties.length,
+        message:
+          "Properties retrieved successfully based on your criteria 🔍🏡",
+        data: properties,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: "Internal Server Error during fetching properties",
+        error: error.message,
+      });
     }
-
-    // جلب البيانات وعمل الـ Populate الآمن لحقول محددة من الـ Host
-    const properties = await Property.find(filterObj)
-      .populate("hostId", "name email")
-      .sort(sortBy);
-
-    return res.status(200).json({
-      success: true,
-      count: properties.length,
-      message: "Properties filtered and retrieved successfully 🔍🏡",
-      data: properties,
-    });
   };
   getPropertyById = async (req, res) => {
     const { id } = req.params;
@@ -311,22 +343,18 @@ class propertyController {
     // 2. البحث عن العقار والتأكد من وجوده وأنه غير محذوف مسبقاً
     const property = await Property.findOne({ _id: id, isDeleted: false });
     if (!property) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message: "Property not found or already deleted.",
-        });
+      return res.status(404).json({
+        success: false,
+        message: "Property not found or already deleted.",
+      });
     }
 
     // 3. جدار الحماية: التأكد أن الحاذف هو المالك الفعلي للعقار
     if (property.hostId.toString() !== currentUserId) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "Access Denied. You cannot delete this property.",
-        });
+      return res.status(403).json({
+        success: false,
+        message: "Access Denied. You cannot delete this property.",
+      });
     }
 
     // 🛑 4. الشرط الذكي: التحقق من وجود حجوزات نشطة (حالية) أو مستقبلية لم تنتهِ بعد
