@@ -1,5 +1,6 @@
 const { body, param } = require("express-validator");
 const validate = require("../middlewares/validate");
+
 const createPropertyValidation = [
   body("title")
     .trim()
@@ -18,13 +19,45 @@ const createPropertyValidation = [
     .withMessage("Description must be a string")
     .escape(),
 
+  // 🌍 التعديل الجوهري 1: التحقق من حقول كائن الموقع الجغرافي عند الإضافة
   body("location")
+    .notEmpty()
+    .withMessage("Location object is required")
+    .isObject()
+    .withMessage(
+      "Location must be an object containing address and coordinates",
+    ),
+
+  body("location.address")
     .trim()
     .notEmpty()
-    .withMessage("Location is required")
+    .withMessage("Location address text is required")
     .isString()
-    .withMessage("Location must be a string")
+    .withMessage("Location address must be a string")
     .escape(),
+
+  body("location.coordinates")
+    .notEmpty()
+    .withMessage("Coordinates are required")
+    .isArray({ min: 2, max: 2 })
+    .withMessage(
+      "Coordinates must be an array of exactly two numbers [longitude, latitude]",
+    )
+    .custom((coordinatesArray) => {
+      const [lng, lat] = coordinatesArray;
+      if (typeof lng !== "number" || typeof lat !== "number") {
+        throw new Error("Both longitude and latitude must be numbers");
+      }
+      if (lng < -180 || lng > 180) {
+        throw new Error(
+          "Longitude must be a valid number between -180 and 180",
+        );
+      }
+      if (lat < -90 || lat > 90) {
+        throw new Error("Latitude must be a valid number between -90 and 90");
+      }
+      return true;
+    }),
 
   body("pricePerNight")
     .notEmpty()
@@ -73,7 +106,6 @@ const createPropertyValidation = [
     .isArray()
     .withMessage("Images must be sent as an array")
     .custom((imagesArray) => {
-      // التحقق من أن كل عنصر داخل المصفوفة هو URL صالح
       const isAllURLs = imagesArray.every(
         (img) =>
           (typeof img === "string" &&
@@ -116,7 +148,6 @@ const createPropertyValidation = [
 ];
 
 const updatePropertyValidation = [
-  // فحص سلامة الـ ID الممرر في الرابط كـ Parameter أولاً قبل فحص الـ Body
   param("id")
     .isMongoId()
     .withMessage("Invalid Property ID format passed in URL"),
@@ -137,12 +168,38 @@ const updatePropertyValidation = [
     .withMessage("Description must be a string")
     .escape(),
 
+  // 🌍 التعديل الجوهري 2: التحقق من حقول الموقع كـ حقول اختيارية عند التحديث (Optional Validation)
   body("location")
+    .optional({ checkFalsy: true })
+    .isObject()
+    .withMessage("Location must be an object"),
+
+  body("location.address")
     .optional({ checkFalsy: true })
     .trim()
     .isString()
-    .withMessage("Location must be a string")
+    .withMessage("Location address must be a string")
     .escape(),
+
+  body("location.coordinates")
+    .optional({ checkFalsy: true })
+    .isArray({ min: 2, max: 2 })
+    .withMessage(
+      "Coordinates must be an array of exactly two numbers [longitude, latitude]",
+    )
+    .custom((coordinatesArray) => {
+      const [lng, lat] = coordinatesArray;
+      if (typeof lng !== "number" || typeof lat !== "number") {
+        throw new Error("Both longitude and latitude must be numbers");
+      }
+      if (lng < -180 || lng > 180) {
+        throw new Error("Longitude must be between -180 and 180");
+      }
+      if (lat < -90 || lat > 90) {
+        throw new Error("Latitude must be between -90 and 90");
+      }
+      return true;
+    }),
 
   body("pricePerNight")
     .optional({ checkFalsy: true })
