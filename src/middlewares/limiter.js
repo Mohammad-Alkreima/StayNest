@@ -10,7 +10,7 @@ const limiter = rateLimit({
 
 const loginLimiter = rateLimit({
 	windowMs: 60 * 60 * 1000, // 60 minutes
-	limit: 15,
+	limit: 25,
 	message: {
         error: "Too Many Requests Per IP Address, Try Again Later"
     }

@@ -36,32 +36,30 @@ SuperAdmin, Guest, Host
 } 
 
 - Property: {
-    propertyId: { 
-        type: mongoose.Schema.Types.ObjectId, 
-        ref: 'Property'
+    hostId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
     },
-    guestId: { 
-        type: mongoose.Schema.Types.ObjectId, 
-        ref: 'User'
+    title: String,
+    description: String,
+    location: String,
+    pricePerNight: Number,
+    cleaningFee: {
+        type: Number,
+        default: 0
     },
-    startDate: Date,
-    endDate: Date,
-    numberOfNights: Number,
-    totalPrice: Number,
-    status: { 
-        type: String, 
-        enum: ['pending', 'confirmed', 'cancelled', 'completed'], 
-        default: 'pending' 
+    serviceFee: {
+        type: Number,
+        default: 0
     },
-    paymentMethod: { 
-        type: String, 
-        enum: ['creditCard', 'bankTransfer', 'cash', 'paypal'] 
+    maxGuests: Number,
+    images: [String],
+    status: {
+        type: String,
+        enum: ["available", "unavailable", "maintenance"],
+        default: "available"
     },
-    paymentStatus: { 
-        type: String, 
-        enum: ['paid', 'unpaid', 'pending'], 
-        default: 'pending' 
-    },
+    amenities: [String],
     isDeleted: {
         type: Boolean,
         default: false
