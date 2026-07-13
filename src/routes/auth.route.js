@@ -12,9 +12,11 @@ const { signupVaildation, loginVaildation, editVaildation } = require("../valida
 
 router.post("/signup", [...signupVaildation], asyncHandler(authController.signup));
 
-router.post("/login", [...loginVaildation], asyncHandler(authController.login));
+router.post("/login", [loginLimiter, ...loginVaildation], asyncHandler(authController.login));
 
 router.post("/logout", [auth], asyncHandler(authController.logout));
+router.post("/forgotpassword", [auth], asyncHandler(authController.forgotPassword));
+router.post("/resetpassword", [auth], asyncHandler(authController.resetPassword));
 
 router.put("/edit/:id", [auth, id, ...editVaildation], asyncHandler(authController.update));
 

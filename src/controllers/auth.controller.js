@@ -2,8 +2,10 @@ const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 const User = require("../models/User");
 const cookiesService = require("../utils/cookiesService");
+const sendEmail = require("../utils/emailService");
 const jwtService = require("../utils/jwtService");
 const passwordService = require("../utils/passwordService");
+const crypto = require("crypto");
 
 class AuthController {
     handleFailedLoginAttempts = async (user) => {
@@ -114,10 +116,10 @@ class AuthController {
     }
 
     update = async(req, res) => {
-        const targetUserId = req.params.id; // المعرف المرسل في الرابط
-        const loggedInUserId = req._user.id; // المعرف القادم من التوكين
+        const targetUserId = req.params.id; // The sender ID in the link
+        const loggedInUserId = req._user.id; // The identifier from the token
 
-        // التحقق: هل المستخدم يحاول تعديل حسابه الشخصي فقط؟
+        // verification: Is the user attempting to modify only their personal account?
         if (targetUserId !== loggedInUserId) {
             return res.status(403).json({ message: "You Can not Edit Details another User" });
         }
@@ -141,20 +143,19 @@ class AuthController {
         const loggedInUserId = req._user.id;
         const loggedInUserRole = req._user.role;
 
-        // 1. حالة المستخدم العادي (يحذف نفسه فقط)
+        // user can delete only him
         if (loggedInUserRole !== "admin") {
             if (targetUserId !== loggedInUserId) {
                 return res.status(403).json({ message: "Can not Delete another Users" });
             }
         }
 
-        // 2. حالة الـ Admin (لا يحذف نفسه)
+        // admin can not deleted himself
         if (loggedInUserRole === "admin" && targetUserId === loggedInUserId) {
             return res.status(400).json({ message: "Can not Delete Admin User From Here" });
         }
 
-        // تنفيذ الحذف
-        // تحديث المستخدم ليكون "محذوفاً"
+        // update user to be deleted
         const user = await User.findByIdAndUpdate(
             targetUserId, 
             { isDeleted: true }, 
@@ -162,10 +163,63 @@ class AuthController {
         );
 
         await Property.updateMany({ hostId: targetUserId }, { isDeleted: true });
-        await Booking.updateMany({ $or: [{ guestId: targetUserId }, { hostId: targetUserId }] }, { isDeleted: true });
+        await Booking.updateMany({ guestId: targetUserId }, { isDeleted: true });
         
         return res.status(200).json({ message: "Disabled Account Successfully" });
     }
+
+    forgotPassword = async (req, res) => {
+        const { email } = req.body;
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(404).json({ message: "No user found with this email" });
+        }
+
+        // create random token
+        const resetToken = crypto.randomBytes(32).toString("hex");
+
+        // encryption token using sha256 before save in database
+        user.passwordResetToken = crypto.createHash("sha256").update(resetToken).digest("hex");
+        user.passwordResetExpires = Date.now() + 10 * 60 * 1000; // صلاحية 10 دقائق
+        
+        await user.save();
+
+        // send email
+        await sendEmail(user.email, resetToken);
+
+        res.status(200).json({ 
+            token: resetToken,
+            message: "Token sent to email" });
+    };
+
+    resetPassword = async (req, res) => {
+        const { token, newPassword } = req.body;
+
+        // encrypting the token received from the user in the same way for comparison. 
+        const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+        // search for the user who holds this encrypted token with a valid expiration date.
+        const user = await User.findOne({
+            passwordResetToken: hashedToken,
+            passwordResetExpires: { $gt: Date.now() }
+        });
+
+        if (!user) {
+            return res.status(400).json({ message: "Token is invalid or has expired" });
+        }
+
+        // update password, encrytion it
+        user.password = await passwordService.hash(newPassword);
+        
+        // 4. delete token form database after using
+        user.passwordResetToken = undefined;
+        user.passwordResetExpires = undefined;
+        
+        await user.save();
+
+        res.status(200).json({ message: "Password updated successfully" });
+    };
 }
 
 module.exports = new AuthController();

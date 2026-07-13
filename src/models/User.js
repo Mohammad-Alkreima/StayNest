@@ -1,3 +1,4 @@
+const argon2 = require("argon2")
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema({
@@ -34,6 +35,9 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    // reset password
+    passwordResetToken: String,
+    passwordResetExpires: Date,
     // block mechanism to sometime if he get failed 5 times
     blocked: { 
         type: Boolean,
@@ -48,15 +52,14 @@ const userSchema = new mongoose.Schema({
     timestamps: true
 });
 
-userSchema.pre("save", async function(next) {
-    // إذا كانت كلمة السر تبدأ بـ $argon2، فهذا يعني أنها مشفرة بالفعل!
+userSchema.pre("save", async function() {
+    // if password starts argon2 => the password is encrypted
     if (this.password.startsWith("$argon2")) {
-        return next();
+        return;
     }
     
-    // غير ذلك، قم بتشفيرها
+    // or encryption password
     this.password = await argon2.hash(this.password);
-    next();
 });
 
 module.exports = mongoose.model("User", userSchema);

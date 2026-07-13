@@ -37,6 +37,9 @@ const signupVaildation = [
         .escape(),
 
     body("role")
+        .optional({
+            checkFalsy: false
+        })
         .custom((role) => {
             const roles = ["guest", "host"];
             if(!roles.includes(role)) {
