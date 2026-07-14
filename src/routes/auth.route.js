@@ -9,14 +9,15 @@ const id = require("../middlewares/id");
 const { loginLimiter } = require("../middlewares/limiter");
 const { signupVaildation, loginVaildation, editVaildation } = require("../validators/auth.validate");
 
-
 router.post("/signup", [...signupVaildation], asyncHandler(authController.signup));
+
+router.post("/forgotpassword", asyncHandler(authController.forgotPassword));
+
+router.post("/resetpassword", asyncHandler(authController.resetPassword));
 
 router.post("/login", [loginLimiter, ...loginVaildation], asyncHandler(authController.login));
 
 router.post("/logout", [auth], asyncHandler(authController.logout));
-router.post("/forgotpassword", [auth], asyncHandler(authController.forgotPassword));
-router.post("/resetpassword", [auth], asyncHandler(authController.resetPassword));
 
 router.put("/edit/:id", [auth, id, ...editVaildation], asyncHandler(authController.update));
 
