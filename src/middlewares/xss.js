@@ -1,33 +1,34 @@
 const xss = require("xss");
 
-const sanitizeInput = (input) => {
-    if (typeof input === 'string') {
+const sanitizeValue = (input) => {
+    if (typeof input === "string") {
         return xss(input, {
-            whiteList: {}, // empty means remove all tags
+            whiteList: {},
             stripIgnoreTag: true,
-            stripIgnoreTagBody: ['script', 'style']
+            stripIgnoreTagBody: ["script", "style"],
         }).trim();
     }
     return input;
 };
 
-// Middleware to sanitize all incoming data
+// يشتغل بشكل recursive على nested objects وArrays
+const sanitizeDeep = (data) => {
+    if (typeof data === "string") return sanitizeValue(data);
+    if (Array.isArray(data)) return data.map(sanitizeDeep);
+    if (data !== null && typeof data === "object") {
+        const result = {};
+        for (const key of Object.keys(data)) {
+            result[key] = sanitizeDeep(data[key]);
+        }
+        return result;
+    }
+    return data;
+};
+
 const xssSanitize = (req, res, next) => {
-    if (req.body) {
-        Object.keys(req.body).forEach(key => {
-            req.body[key] = sanitizeInput(req.body[key]);
-        });
-    }
-    if (req.query) {
-        Object.keys(req.query).forEach(key => {
-            req.query[key] = sanitizeInput(req.query[key]);
-        });
-    }
-    if (req.params) {
-        Object.keys(req.params).forEach(key => {
-            req.params[key] = sanitizeInput(req.params[key]);
-        });
-    }
+    if (req.body)   req.body   = sanitizeDeep(req.body);
+    if (req.query)  req.query  = sanitizeDeep(req.query);
+    if (req.params) req.params = sanitizeDeep(req.params);
     next();
 };
 

@@ -1,3 +1,4 @@
+const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 class propertyController {
   createProperty = async (req, res) => {
@@ -26,9 +27,9 @@ class propertyController {
       });
     }
 
-    // ✅ الحل: تطهير البيانات وتخزينها في متغيرات جديدة (Clean Variables) لتجنب الـ const error
+    // ✅ تطهير البيانات النصية فقط — location هو Object جغرافي لا يُطبق عليه trim()
     const cleanedTitle = title.trim();
-    const cleanedLocation = location.trim();
+    const cleanedLocation = location;
     const cleanedDescription = description ? description.trim() : "";
 
     if (cleanedTitle.length < 5 || cleanedTitle.length > 100) {
