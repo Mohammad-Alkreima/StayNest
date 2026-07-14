@@ -47,7 +47,21 @@ const bookingSchema = new mongoose.Schema({
         default: false
     },
 }, { 
-    timestamps: true 
+    timestamps: true,
+    strict: true, // 🛡️ منع Mass Assignment — رفض أي حقل غير معرّف في الـ Schema
 });
+
+// 🛡️ فهرس مركب فريد لمنع Race Condition (Overbooking)
+// يمنع إنشاء حجزين متعارضين لنفس العقار ونفس الفترة
+bookingSchema.index(
+    { propertyId: 1, startDate: 1, endDate: 1 },
+    {
+        unique: true,
+        partialFilterExpression: {
+            isDeleted: false,
+            status: { $in: ["pending", "confirmed"] },
+        },
+    }
+);
 
 module.exports = mongoose.model("Booking", bookingSchema);
