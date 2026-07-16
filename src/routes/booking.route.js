@@ -6,6 +6,7 @@ const roleMiddleware = require("../middlewares/role");
 const asyncHandler = require("../utils/asyncHandler");
 const {
   createBookingValidation,
+  updateBookingValidation,
   bookingIdValidation,
 } = require("../validators/bookingValidation");
 
@@ -42,6 +43,17 @@ router.patch(
   "/:id/confirm",
   [auth, ...bookingIdValidation, roleMiddleware(["host", "admin"])],
   asyncHandler(bookingController.confirmBooking),
+);
+
+// PATCH /api/v1/bookings/:id — Update booking details (Guest owner only)
+router.patch(
+  "/:id",
+  [
+    auth,
+    roleMiddleware(["guest"]),
+    ...updateBookingValidation,
+  ],
+  asyncHandler(bookingController.updateBooking),
 );
 
 // DELETE /api/v1/bookings/:id — حذف ناعم (Admin فقط)
