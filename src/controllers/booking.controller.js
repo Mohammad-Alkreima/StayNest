@@ -2,112 +2,124 @@ const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 
 class BookingController {
-  // ──────────────────────────────────────────────
-  // POST /api/v1/bookings
-  // إنشاء حجز جديد — Guest فقط
-  // ──────────────────────────────────────────────
-  createBooking = async (req, res) => {
-    try {
-      const guestId = req._user.id;
 
-      // startDate و endDate يصلان كـ Date objects بعد toDate() في الـ validator
-      const { propertyId, startDate, endDate, paymentMethod } = req.body;
+    createBooking = async (req, res) => {
+        const guestId = req._user.id;
+        const { propertyId, startDate, endDate, paymentMethod } = req.body;
 
-      const start = startDate instanceof Date ? startDate : new Date(startDate);
-      const end   = endDate   instanceof Date ? endDate   : new Date(endDate);
+        const start = new Date(startDate);
+        const end = new Date(endDate);
 
-      // ─── 1. جلب العقار ───────────────────────────────────────────────────
-      const property = await Property.findOne({ _id: propertyId, isDeleted: false });
+        start.setHours(0, 0, 0, 0);
+        end.setHours(0, 0, 0, 0);
 
-      if (!property) {
-        return res.status(404).json({
-          success: false,
-          message: "Property not found or has been removed.",
+        // Check if property exists
+        const property = await Property.findOne({
+            _id: propertyId,
+            isDeleted: false,
         });
-      }
 
-      // ─── 2. العقار متاح للحجز؟ ───────────────────────────────────────────
-      if (property.status !== "available") {
-        return res.status(400).json({
-          success: false,
-          message: `Property is currently ${property.status} and cannot be booked.`,
+        if (!property) {
+            return res.status(404).json({
+                success: false,
+                message: "Property not found.",
+            });
+        }
+
+        // Check property availability
+        if (property.status !== "available") {
+            return res.status(400).json({
+                success: false,
+                message: "Property not available.",
+            });
+        }
+
+        // Prevent the host from booking his own property
+        if (property.hostId.toString() === guestId) {
+            return res.status(403).json({
+                success: false,
+                message: "Cannot book your own property.",
+            });
+        }
+
+        // Check overlapping bookings
+        const overlap = await Booking.findOne({
+            propertyId,
+            isDeleted: false,
+            status: { $in: ["pending", "confirmed"] },
+            startDate: { $lt: end },
+            endDate: { $gt: start },
         });
-      }
 
-      // ─── 3. المضيف لا يحجز عقاره بنفسه ──────────────────────────────────
-      if (property.hostId.toString() === guestId) {
-        return res.status(403).json({
-          success: false,
-          message: "You cannot book your own property.",
+        if (overlap) {
+            return res.status(409).json({
+                success: false,
+                message: "Dates overlap with existing booking.",
+            });
+        }
+
+        // Calculate number of nights
+        const numberOfNights = Math.round(
+            (end - start) / (1000 * 60 * 60 * 24)
+        );
+
+        if (numberOfNights < 1) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid duration.",
+            });
+        }
+
+        // Calculate prices
+        const subtotal =
+            numberOfNights * property.pricePerNight;
+
+        const totalPrice =
+            subtotal +
+            (property.cleaningFee || 0) +
+            (property.serviceFee || 0);
+
+        // Create booking
+        const booking = await Booking.create({
+            propertyId,
+            hostId: property.hostId,
+            guestId,
+            startDate: start,
+            endDate: end,
+            numberOfNights,
+            pricePerNightAtBooking: property.pricePerNight,
+            cleaningFeeAtBooking: property.cleaningFee || 0,
+            serviceFeeAtBooking: property.serviceFee || 0,
+            subtotal,
+            totalPrice,
+            paymentMethod: paymentMethod || "bankTransfer",
         });
-      }
 
-      // ─── 4. فحص تداخل التواريخ ───────────────────────────────────────────
-      // الفهرس الفريد يمنع نفس التواريخ — هذا يمنع التداخل الجزئي أيضاً
-      // مثال: حجز 1-10 أغسطس يمنع حجز 5-15 أغسطس
-      const overlap = await Booking.findOne({
-        propertyId,
-        isDeleted: false,
-        status: { $in: ["pending", "confirmed"] },
-        startDate: { $lt: end },   // الحجز الموجود يبدأ قبل نهاية الطلب الجديد
-        endDate:   { $gt: start }, // الحجز الموجود ينتهي بعد بداية الطلب الجديد
-      });
-
-      if (overlap) {
-        return res.status(409).json({
-          success: false,
-          message: "This property is already booked for the selected dates.",
+        return res.status(201).json({
+            success: true,
+            message: "Booking created successfully.",
+            data: booking,
         });
-      }
+    };
 
-      // ─── 5. حساب السعر ───────────────────────────────────────────────────
-      const MS_PER_DAY    = 1000 * 60 * 60 * 24;
-      const numberOfNights = Math.round((end - start) / MS_PER_DAY);
 
-      // خط دفاع إضافي — الـ validator يمنع هذا لكن نتأكد بعد الحساب
-      if (numberOfNights < 1) {
-        return res.status(400).json({
-          success: false,
-          message: "Booking must be at least 1 night.",
+    getHostBookings = async (req, res) => {
+        const hostId = req._user.id;
+
+        const bookings = await Booking.find({
+            hostId,
+            isDeleted: false,
+        })
+            .populate("propertyId", "title location")
+            .populate("guestId", "name email")
+            .sort({ createdAt: -1 });
+
+        return res.status(200).json({
+            success: true,
+            count: bookings.length,
+            data: bookings,
         });
-      }
-
-      const totalPrice =
-        numberOfNights * property.pricePerNight +
-        (property.cleaningFee || 0) +
-        (property.serviceFee  || 0);
-
-      // ─── 6. إنشاء الحجز ──────────────────────────────────────────────────
-      const booking = await Booking.create({
-        propertyId,
-        guestId,
-        startDate: start,
-        endDate:   end,
-        numberOfNights,
-        totalPrice,
-        paymentMethod: paymentMethod || "bankTransfer",
-      });
-
-      return res.status(201).json({
-        success: true,
-        message: "Booking created successfully ✅",
-        data: booking,
-      });
-
-    } catch (error) {
-      // خط دفاع ثانٍ ضد Race Condition — الفهرس الفريد في Booking.js
-      if (error.code === 11000) {
-        return res.status(409).json({
-          success: false,
-          message: "This property is already booked for the selected dates.",
-        });
-      }
-      return res.status(500).json({
-        success: false,
-        message: "Internal Server Error during booking creation.",
-      });
-    }
-  };
+      };
 
 
   // ──────────────────────────────────────────────
@@ -344,6 +356,7 @@ class BookingController {
       });
     }
   };
+
 }
 
 module.exports = new BookingController();

@@ -36,36 +36,30 @@ const bookingSchema = new mongoose.Schema(
       min: [1, "Booking must contain at least one night"],
     },
 
-    // ─── Pricing snapshot ────────────────────────────────────────────────────
-    // Store the property price at the moment the booking is created
     pricePerNightAtBooking: {
       type: Number,
       required: [true, "Price per night at booking is required"],
       min: [0, "Price per night cannot be negative"],
     },
 
-    // Store the cleaning fee at the moment the booking is created
     cleaningFeeAtBooking: {
       type: Number,
       default: 0,
       min: [0, "Cleaning fee cannot be negative"],
     },
 
-    // Store the service fee at the moment the booking is created
     serviceFeeAtBooking: {
       type: Number,
       default: 0,
       min: [0, "Service fee cannot be negative"],
     },
 
-    // Accommodation cost before adding extra fees
     subtotal: {
       type: Number,
       required: [true, "Subtotal is required"],
       min: [0, "Subtotal cannot be negative"],
     },
 
-    // Final booking amount after adding all fees
     totalPrice: {
       type: Number,
       required: [true, "Total price is required"],
@@ -102,14 +96,20 @@ const bookingSchema = new mongoose.Schema(
 );
 
 // Prevent two active bookings from having the exact same property and dates.
-// Partial date overlaps are still checked inside the booking controller.
+// Partial date overlaps are checked inside the booking controller.
 bookingSchema.index(
-  { propertyId: 1, startDate: 1, endDate: 1 },
+  {
+    propertyId: 1,
+    startDate: 1,
+    endDate: 1,
+  },
   {
     unique: true,
     partialFilterExpression: {
       isDeleted: false,
-      status: { $in: ["pending", "confirmed"] },
+      status: {
+        $in: ["pending", "confirmed"],
+      },
     },
   },
 );
