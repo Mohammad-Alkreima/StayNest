@@ -9,42 +9,48 @@ const {
   bookingIdValidation,
 } = require("../validators/bookingValidation");
 
-// POST /api/v1/bookings — إنشاء حجز جديد (Guest فقط)
+// POST /api/v1/bookings 
 router.post(
   "/",
   [auth, roleMiddleware(["guest"]), ...createBookingValidation],
   asyncHandler(bookingController.createBooking),
 );
 
-// GET /api/v1/bookings — جلب الحجوزات (Guest: حجوزاته، Admin: الكل)
+router.get(
+  "/my-bookings",
+  [auth, roleMiddleware(["host"])],
+  bookingController.getHostBookings
+);
+
+// GET /api/v1/bookings
 router.get(
   "/",
   [auth, roleMiddleware(["guest", "admin"])],
   asyncHandler(bookingController.getMyBookings),
 );
 
-// GET /api/v1/bookings/:id — تفاصيل حجز واحد
+// GET /api/v1/bookings/:id 
 router.get(
   "/:id",
   [auth, ...bookingIdValidation, roleMiddleware(["guest", "admin"])],
   asyncHandler(bookingController.getBookingById),
 );
 
-// PATCH /api/v1/bookings/:id/cancel — إلغاء حجز (Guest صاحب الحجز أو Admin)
+// PATCH /api/v1/bookings/:id/cancel 
 router.patch(
   "/:id/cancel",
   [auth, ...bookingIdValidation, roleMiddleware(["guest", "admin"])],
   asyncHandler(bookingController.cancelBooking),
 );
 
-// PATCH /api/v1/bookings/:id/confirm — تأكيد حجز (Host أو Admin)
+// PATCH /api/v1/bookings/:id/confirm
 router.patch(
   "/:id/confirm",
   [auth, ...bookingIdValidation, roleMiddleware(["host", "admin"])],
   asyncHandler(bookingController.confirmBooking),
 );
 
-// DELETE /api/v1/bookings/:id — حذف ناعم (Admin فقط)
+// DELETE /api/v1/bookings/:id 
 router.delete(
   "/:id",
   [auth, ...bookingIdValidation, roleMiddleware(["admin"])],
