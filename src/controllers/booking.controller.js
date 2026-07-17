@@ -357,6 +357,145 @@ class BookingController {
     }
   };
 
+
+// ──────────────────────────────────────────────
+// PATCH /api/v1/bookings/:id/cancel
+// Cancel booking — Guest owner or Admin
+// ──────────────────────────────────────────────
+cancelBooking = async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const loggedInUserId = req._user.id;
+    const loggedInUserRole = req._user.role;
+    const { cancellationReason } = req.body;
+    // ─── 1. Get the booking ─────────────────────────────────────
+    // Find the booking only if it has not been soft-deleted
+    const booking = await Booking.findOne({
+      _id: bookingId,
+      isDeleted: false,
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found or has been removed.",
+      });
+    }
+
+    // ─── 2. Check cancellation permission ───────────────────────
+    // Allow cancellation only for the booking owner or an admin
+    const isBookingOwner =
+      booking.guestId.toString() === loggedInUserId;
+
+    const isAdmin = loggedInUserRole === "admin";
+
+    if (!isBookingOwner && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to cancel this booking.",
+      });
+    }
+
+    // ─── 3. Check booking status ─────────────────────────────────
+    // Allow cancellation only for pending or confirmed bookings
+    if (!["pending", "confirmed"].includes(booking.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `A ${booking.status} booking cannot be cancelled.`,
+      });
+    }
+
+    // ─── 4. Prevent cancellation after the stay has started ─────
+    // Compare calendar days only, without considering the time
+    const now = new Date();
+
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+
+    const normalizedStartDate = new Date(booking.startDate);
+    normalizedStartDate.setHours(0, 0, 0, 0);
+
+    if (normalizedStartDate <= today) {
+      return res.status(400).json({
+        success: false,
+        message: "This booking cannot be cancelled after the stay has started.",
+      });
+    }
+
+    // ─── 5. Calculate days before check-in ──────────────────────
+    // Used later to determine the refund policy
+    const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+    const todayUTC = Date.UTC(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate()
+    );
+
+    const startDateUTC = Date.UTC(
+      normalizedStartDate.getFullYear(),
+      normalizedStartDate.getMonth(),
+      normalizedStartDate.getDate()
+    );
+
+    const daysBeforeStart = Math.floor(
+      (startDateUTC - todayUTC) / MS_PER_DAY
+
+    );
+
+    // ─── 6. Calculate the refund ─────────────────────────────────
+    // Refunds apply only to bookings that have already been paid
+    let refundPercentage = 0;
+    let refundAmount = 0;
+
+    if (booking.paymentStatus === "paid") {
+      if (daysBeforeStart >= 7) {
+        refundPercentage = 100;
+      } else if (daysBeforeStart >= 2) {
+        refundPercentage = 50;
+      }
+
+      refundAmount = Number(
+        ((booking.totalPrice * refundPercentage) / 100).toFixed(2)
+      );
+    }
+
+    // ─── 7. Update cancellation information ─────────────────────
+    // Mark the booking as cancelled and store the cancellation details
+    booking.status = "cancelled";
+    booking.cancelledAt = now;
+    booking.cancelledBy = loggedInUserId;
+    booking.cancelledByRole = loggedInUserRole;
+    booking.cancellationReason = cancellationReason?.trim() || null;
+    booking.refundPercentage = refundPercentage;
+    booking.refundAmount = refundAmount;
+    booking.refundStatus =
+      refundAmount > 0 ? "pending" : "notRequired";
+
+  
+    // ─── 8. Save the updated booking ─────────────────────────────
+    // Save all cancellation changes to the database
+    await booking.save();
+
+    // ─── 9. Return success response ──────────────────────────────
+    // Return the updated booking after successful cancellation
+    return res.status(200).json({
+      success: true,
+      message: "Booking cancelled successfully.",
+      data: booking,
+    });
+
+  } catch (error) {
+    console.error("Cancel Booking Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error during booking cancellation.",
+    });
+  }
+};
 }
+
+
 
 module.exports = new BookingController();

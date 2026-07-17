@@ -3,7 +3,7 @@ const validate = require("../middlewares/validate");
 
 const ALLOWED_PAYMENT_METHODS = ["creditCard", "bankTransfer", "cash", "paypal"];
 
-// ─── إنشاء حجز جديد ─────────────────────────────────────────────────────────
+// ─── Create a new booking ─────────────────────────────────────────────────
 const createBookingValidation = [
   body("propertyId")
     .notEmpty()
@@ -18,44 +18,54 @@ const createBookingValidation = [
     .withMessage("startDate must be a valid ISO 8601 date (e.g. 2026-08-01)")
     .toDate()
     .custom((value) => {
-      if (value < new Date()) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const bookingDate = new Date(value);
+      bookingDate.setHours(0, 0, 0, 0);
+
+      if (bookingDate < today) {
         throw new Error("startDate cannot be in the past");
       }
+
       return true;
     }),
 
   body("endDate")
-    .notEmpty()
-    .withMessage("endDate is required")
-    .isISO8601()
-    .withMessage("endDate must be a valid ISO 8601 date (e.g. 2026-08-05)")
-    .toDate()
-    .custom((endValue, { req }) => {
-      // req.body.startDate قد يكون Date object بعد toDate() أو string — نتعامل مع الحالتين
-      const startValue = req.body.startDate;
-      const start = startValue instanceof Date ? startValue : new Date(startValue);
-      if (isNaN(start.getTime())) {
-        // startDate فاشل بالفعل في الـ validator الخاص به — نتجاهل هنا
-        return true;
-      }
-      if (endValue <= start) {
-        throw new Error("endDate must be after startDate");
-      }
+  .notEmpty()
+  .withMessage("endDate is required")
+  .isISO8601()
+  .withMessage("endDate must be a valid ISO 8601 date (e.g. 2026-08-05)")
+  .toDate()
+  .custom((endValue, { req }) => {
+    const startValue = req.body.startDate;
+    const start =
+      startValue instanceof Date ? startValue : new Date(startValue);
+
+    if (isNaN(start.getTime())) {
       return true;
-    }),
+    }
+
+    if (endValue <= start) {
+      throw new Error("endDate must be after startDate");
+    }
+
+    return true;
+  }),
 
   body("paymentMethod")
     .optional({ checkFalsy: true })
     .isString()
     .withMessage("paymentMethod must be a string")
     .custom((value) => {
-      if (!ALLOWED_PAYMENT_METHODS.includes(value)) {
-        throw new Error(
-          `Invalid paymentMethod. Allowed values: ${ALLOWED_PAYMENT_METHODS.join(", ")}`
-        );
-      }
-      return true;
-    }),
+    if (!ALLOWED_PAYMENT_METHODS.includes(value)) {
+      throw new Error(
+        `Invalid paymentMethod. Allowed values: ${ALLOWED_PAYMENT_METHODS.join(", ")}`
+      );
+    }
+
+    return true;
+  }),
 
   validate,
 ];
@@ -153,7 +163,64 @@ const updateBookingValidation = [
 ];
 
 
-// ─── التحقق من الـ id في الـ params ─────────────────────────────────────────
+// ─── Cancel booking ──────────────────────────────────────────────────────────
+const cancelBookingValidation = [
+  // Validate that the booking ID in the URL is a valid MongoDB ObjectId
+  param("id")
+    .isMongoId()
+    .withMessage("Invalid booking ID format"),
+
+  // cancellationReason is optional, but when provided it must be a valid string
+  body("cancellationReason")
+    .optional({ checkFalsy: true })
+    .isString()
+    .withMessage("cancellationReason must be a string")
+    .bail()
+    .trim()
+    .notEmpty()
+    .withMessage("cancellationReason cannot be empty")
+    .bail()
+    .isLength({
+        max: 500,
+     })
+    .withMessage(
+      "cancellationReason cannot exceed 500 characters"
+     ),
+
+  // Allow only cancellationReason in the request body
+  body().custom((requestBody) => {
+    // Ensure the request body is a valid JSON object
+    if (
+      !requestBody ||
+      typeof requestBody !== "object" ||
+      Array.isArray(requestBody)
+    ) {
+      throw new Error("Request body must be a valid JSON object");
+    }
+    // The client is only allowed to provide an optional cancellation reason.
+    const allowedFields = ["cancellationReason"];
+    const receivedFields = Object.keys(requestBody);
+
+    // Reject any client-controlled or unrelated fields
+    const forbiddenFields = receivedFields.filter(
+      (field) => !allowedFields.includes(field)
+    );
+
+    if (forbiddenFields.length > 0) {
+      throw new Error(
+        `Fields not allowed for cancellation: ${forbiddenFields.join(", ")}`
+      );
+    }
+
+    return true;
+  }),
+
+  // Return express-validator errors using the project's standard response format
+  validate,
+];
+
+
+// ─── Validate booking ID parameter ──────────────────────────────────────────
 const bookingIdValidation = [
   param("id")
     .isMongoId()
@@ -165,5 +232,6 @@ const bookingIdValidation = [
 module.exports = {
   createBookingValidation,
   updateBookingValidation,
+  cancelBookingValidation,
   bookingIdValidation,
 };
