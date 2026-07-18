@@ -84,6 +84,51 @@ const bookingSchema = new mongoose.Schema(
       default: "pending",
     },
 
+    // ===== Cancellation Information =====
+
+    cancelledAt: {
+      type: Date,
+      default: null,
+    },
+
+    cancelledBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    cancelledByRole: {
+      type: String,
+      enum: ["guest", "admin"],
+      default: null,
+    },
+
+    cancellationReason: {
+      type: String,
+      trim: true,
+      maxlength: [500, "Cancellation reason cannot exceed 500 characters"],
+      default: null,
+    },
+
+    refundPercentage: {
+      type: Number,
+      min: [0, "Refund percentage cannot be less than 0"],
+      max: [100, "Refund percentage cannot exceed 100"],
+      default: 0,
+    },
+
+    refundAmount: {
+      type: Number,
+      min: [0, "Refund amount cannot be negative"],
+      default: 0,
+    },
+
+    refundStatus: {
+      type: String,
+      enum: ["notRequired", "pending", "processed"],
+      default: "notRequired",
+    },
+
     isDeleted: {
       type: Boolean,
       default: false,

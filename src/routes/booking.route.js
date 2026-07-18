@@ -8,6 +8,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const {
   createBookingValidation,
   updateBookingValidation,
+  cancelBookingValidation,
   bookingIdValidation,
 } = require("../validators/bookingValidation");
 
@@ -42,7 +43,11 @@ router.get(
 // PATCH /api/v1/bookings/:id/cancel
 router.patch(
   "/:id/cancel",
-  [auth, ...bookingIdValidation, roleMiddleware(["guest", "admin"])],
+  [
+    auth,
+    roleMiddleware(["guest", "admin"]),
+    ...cancelBookingValidation,
+  ],
   asyncHandler(bookingController.cancelBooking),
 );
 
