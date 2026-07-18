@@ -58,6 +58,19 @@ router.patch(
   asyncHandler(bookingController.confirmBooking),
 );
 
+// PATCH /api/v1/bookings/:id/reject
+router.patch(
+    "/:id/reject",
+    [
+        auth,
+        ...bookingIdValidation,
+        roleMiddleware(["host", "admin"]),
+    ],
+    asyncHandler(
+        bookingController.rejectBooking
+    )
+);
+
 // PATCH /api/v1/bookings/:id
 // Update booking details — Guest owner only
 router.patch(

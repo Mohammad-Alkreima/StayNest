@@ -1,7 +1,15 @@
 const Booking = require("../models/Booking");
 const Property = require("../models/Property");
+const User = require("../models/User");
+
+const LOYALTY_LEVELS = require("../constants/loyaltyLevels");
 
 class BookingController {
+    getLoyaltyLevel = (totalBookings) => {
+         return LOYALTY_LEVELS.find(
+             (level) => totalBookings >= level.minCompletedBookings
+         );
+    };
 
     createBooking = async (req, res) => {
         const guestId = req._user.id;
@@ -42,6 +50,19 @@ class BookingController {
             });
         }
 
+        // Get guest information to calculate loyalty discount
+        const guest = await User.findById(guestId);
+
+         if (!guest) {
+              return res.status(404).json({
+                  success: false,
+                  message: "Guest not found.",
+              });
+         }
+        const loyaltyLevel = this.getLoyaltyLevel(
+              guest.totalBookings || 0
+        );
+
         // Check overlapping bookings
         const overlap = await Booking.findOne({
             propertyId,
@@ -74,10 +95,19 @@ class BookingController {
         const subtotal =
             numberOfNights * property.pricePerNight;
 
+        // Calculate the loyalty discount amount based on the guest's level
+        const discountAmount =
+            subtotal * (loyaltyLevel.discountPercentage / 100);
+
+        // Calculate the final price after applying the discount
+        // The loyalty discount applies only to the subtotal,
+        // not to the cleaning fee or service fee.
         const totalPrice =
-            subtotal +
+            subtotal -
+            discountAmount +
             (property.cleaningFee || 0) +
             (property.serviceFee || 0);
+
 
         // Create booking
         const booking = await Booking.create({
@@ -87,11 +117,21 @@ class BookingController {
             startDate: start,
             endDate: end,
             numberOfNights,
-            pricePerNightAtBooking: property.pricePerNight,
-            cleaningFeeAtBooking: property.cleaningFee || 0,
-            serviceFeeAtBooking: property.serviceFee || 0,
+            pricingSnapshot: {
+            pricePerNight: property.pricePerNight,
+
+            cleaningFee: property.cleaningFee || 0,
+
+            serviceFee: property.serviceFee || 0,
+
             subtotal,
+
+            discountPercentage: loyaltyLevel.discountPercentage,
+
+            discountAmount,
+
             totalPrice,
+            },
             paymentMethod: paymentMethod || "bankTransfer",
         });
 
@@ -197,6 +237,8 @@ class BookingController {
             message: "Invalid booking date format.",
           });
         }
+        finalStartDate.setHours(0, 0, 0, 0);
+        finalEndDate.setHours(0, 0, 0, 0);
 
         // Normalize today and the start date to compare calendar days
         const today = new Date();
@@ -287,14 +329,20 @@ class BookingController {
         }
 
         // ─── 10. Recalculate the booking price using the stored snapshot ────
+        // Get the stored pricing snapshot created when the booking was first made
+        const pricingSnapshot = booking.pricingSnapshot;
+
         // Ensure the booking contains a complete and valid pricing snapshot
         const hasValidPricingSnapshot =
-          Number.isFinite(booking.pricePerNightAtBooking) &&
-          booking.pricePerNightAtBooking >= 0 &&
-          Number.isFinite(booking.cleaningFeeAtBooking) &&
-          booking.cleaningFeeAtBooking >= 0 &&
-          Number.isFinite(booking.serviceFeeAtBooking) &&
-          booking.serviceFeeAtBooking >= 0;
+          pricingSnapshot &&
+          Number.isFinite(pricingSnapshot.pricePerNight) &&
+          pricingSnapshot.pricePerNight >= 0 &&
+          Number.isFinite(pricingSnapshot.cleaningFee) &&
+          pricingSnapshot.cleaningFee >= 0 &&
+          Number.isFinite(pricingSnapshot.serviceFee) &&
+          pricingSnapshot.serviceFee >= 0 &&
+          Number.isFinite(pricingSnapshot.discountPercentage) &&
+          pricingSnapshot.discountPercentage >= 0;
 
         if (!hasValidPricingSnapshot) {
           return res.status(409).json({
@@ -304,22 +352,31 @@ class BookingController {
           });
         }
 
-        // Recalculate the accommodation cost using the original booking price
+        // Recalculate the accommodation subtotal using the original nightly price
         const subtotal =
-          numberOfNights * booking.pricePerNightAtBooking;
+          numberOfNights * pricingSnapshot.pricePerNight;
 
-        // Recalculate the final total using the stored booking fees
+        // Preserve the original loyalty discount percentage
+        const discountAmount =
+          subtotal * (pricingSnapshot.discountPercentage / 100);
+
+        // Recalculate the final price
         const totalPrice =
-          subtotal +
-          booking.cleaningFeeAtBooking +
-          booking.serviceFeeAtBooking;
+          subtotal -
+          discountAmount +
+          pricingSnapshot.cleaningFee +
+          pricingSnapshot.serviceFee;
 
-        // Update the booking with the new dates and calculated values
+        // Update booking dates
         booking.startDate = finalStartDate;
         booking.endDate = finalEndDate;
         booking.numberOfNights = numberOfNights;
-        booking.subtotal = subtotal;
-        booking.totalPrice = totalPrice;
+
+        // Update only the calculated values inside the pricing snapshot
+        booking.pricingSnapshot.subtotal = subtotal;
+        booking.pricingSnapshot.discountAmount = discountAmount;
+        booking.pricingSnapshot.totalPrice = totalPrice;
+        
       } // End of hasDateUpdate
 
       // ─── 11. Update payment method ────────────────────────────────────────
@@ -440,7 +497,6 @@ cancelBooking = async (req, res) => {
 
     const daysBeforeStart = Math.floor(
       (startDateUTC - todayUTC) / MS_PER_DAY
-
     );
 
     // ─── 6. Calculate the refund ─────────────────────────────────
@@ -449,14 +505,35 @@ cancelBooking = async (req, res) => {
     let refundAmount = 0;
 
     if (booking.paymentStatus === "paid") {
+      // Determine the refund percentage based on how early
+      // the booking was cancelled before check-in
       if (daysBeforeStart >= 7) {
         refundPercentage = 100;
       } else if (daysBeforeStart >= 2) {
         refundPercentage = 50;
       }
 
+      // Get the final amount that was agreed upon
+      // when the booking was created
+      const bookingTotalPrice =
+        booking.pricingSnapshot?.totalPrice;
+
+      // Ensure the stored booking price is valid
+      // before using it to calculate a refund
+      if (
+        !Number.isFinite(bookingTotalPrice) ||
+        bookingTotalPrice < 0
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Booking pricing snapshot is missing or invalid. Refund cannot be calculated.",
+        });
+      }
+
+      // Calculate the refundable amount from the stored final price
       refundAmount = Number(
-        ((booking.totalPrice * refundPercentage) / 100).toFixed(2)
+        ((bookingTotalPrice * refundPercentage) / 100).toFixed(2)
       );
     }
 
@@ -467,11 +544,15 @@ cancelBooking = async (req, res) => {
     booking.cancelledBy = loggedInUserId;
     booking.cancelledByRole = loggedInUserRole;
     booking.cancellationReason = cancellationReason?.trim() || null;
-    booking.refundPercentage = refundPercentage;
-    booking.refundAmount = refundAmount;
-    booking.refundStatus =
-      refundAmount > 0 ? "pending" : "notRequired";
-
+    booking.refund = {
+      refundPercentage,
+      refundAmount,
+      refundStatus:
+          refundAmount > 0
+              ? "pending"
+              : "notRequired",
+      refundedAt: null,
+    };
   
     // ─── 8. Save the updated booking ─────────────────────────────
     // Save all cancellation changes to the database
@@ -494,6 +575,170 @@ cancelBooking = async (req, res) => {
     });
   }
 };
+
+// ──────────────────────────────────────────────
+// PATCH /api/v1/bookings/:id/confirm
+// Confirm booking — Property Host or Admin
+// ──────────────────────────────────────────────
+confirmBooking = async (req, res) => {
+  try {
+    // Get booking ID and logged-in user information
+    const bookingId = req.params.id;
+    const loggedInUserId = req._user.id;
+    const loggedInUserRole = req._user.role;
+
+    // ─── 1. Find booking ─────────────────────────────
+    const booking = await Booking.findOne({
+      _id: bookingId,
+      isDeleted: false,
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found or has been removed.",
+      });
+    }
+
+    // ─── 2. Check permission ─────────────────────────
+    const isBookingHost =
+      booking.hostId.toString() === loggedInUserId;
+
+    const isAdmin = loggedInUserRole === "admin";
+
+    if (!isBookingHost && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to confirm this booking.",
+      });
+    }
+
+    // ─── 3. Check booking status ─────────────────────
+    if (booking.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: `A ${booking.status} booking cannot be confirmed.`,
+      });
+    }
+
+    // ─── 4. Confirm the booking ─────────────────────
+    // Change the booking status from pending to confirmed
+    booking.status = "confirmed";
+
+    // Store the exact time when the booking was confirmed
+    booking.confirmedAt = new Date();
+
+    // ─── 5. Save the booking ────────────────────────
+    await booking.save();
+
+    // ─── 6. Return success response ─────────────────
+    return res.status(200).json({
+      success: true,
+      message: "Booking confirmed successfully.",
+      data: booking,
+    });
+
+  } catch (error) {
+    console.error("Confirm Booking Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error during booking confirmation.",
+    });
+  }
+};
+
+
+// Reject booking
+rejectBooking = async (req, res) => {
+    try {
+        const bookingId = req.params.id;
+
+        const { rejectionReason } = req.body;
+
+        const loggedInUserId = req._user.id;
+        const loggedInUserRole = req._user.role;
+
+        // Find booking
+        const booking = await Booking.findOne({
+            _id: bookingId,
+            isDeleted: false,
+        });
+
+        if (!booking) {
+            return res.status(404).json({
+                success: false,
+                message: "Booking not found.",
+            });
+        }
+
+        // Check authorization
+        const isBookingHost =
+            booking.hostId.toString() === loggedInUserId.toString();
+
+        const isAdmin =
+            loggedInUserRole === "admin";
+
+        if (!isBookingHost && !isAdmin) {
+            return res.status(403).json({
+                success: false,
+                message:
+                    "You are not allowed to reject this booking.",
+            });
+        }
+
+        // Only pending bookings can be rejected
+        if (booking.status !== "pending") {
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Only pending bookings can be rejected.",
+            });
+        }
+
+        // Validate rejection reason
+        if (
+            !rejectionReason ||
+            !rejectionReason.trim()
+        ) {
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Rejection reason is required.",
+            });
+        }
+
+        // Reject booking
+        booking.status = "rejected";
+
+        booking.rejectedAt = new Date();
+
+        booking.rejectedBy = loggedInUserId;
+
+        booking.rejectionReason =
+            rejectionReason.trim();
+
+        await booking.save();
+
+        return res.status(200).json({
+            success: true,
+            message:
+                "Booking rejected successfully.",
+            data: booking,
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message:
+                "Something went wrong while rejecting the booking.",
+            error: error.message,
+        });
+    }
+};
+
+
+
+
 }
 
 

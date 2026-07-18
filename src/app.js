@@ -9,6 +9,15 @@ const { limiter } = require("./middlewares/limiter");
 const xssSanitize = require("./middlewares/xss");
 const { default: mongoose } = require("mongoose");
 
+
+const startBookingCompletionJob = require(
+  "./jobs/bookingCompletion.job"
+);
+
+const startBookingExpirationJob = require(
+  "./jobs/bookingExpiration.job"
+);
+
 // middlewares
 app.use(limiter);
 app.use(express.json());
@@ -31,6 +40,9 @@ const MONGODB_URL = process.env.MONGODB_URL;
 mongoose
   .connect(MONGODB_URL)
   .then(() => {
+    startBookingCompletionJob();
+    startBookingExpirationJob();
+
     app.listen(PORT, () => {
       console.log("✅ Connected to MongoDB");
       console.log(`Server Is Running on http://localhost:${PORT}`);
