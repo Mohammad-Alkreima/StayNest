@@ -43,14 +43,17 @@ router.get(
 // PATCH /api/v1/bookings/:id/cancel
 router.patch(
   "/:id/cancel",
-  [
-    auth,
-    roleMiddleware(["guest", "admin"]),
-    ...cancelBookingValidation,
-  ],
+  [auth, roleMiddleware(["guest", "admin"]), ...cancelBookingValidation],
   asyncHandler(bookingController.cancelBooking),
 );
 
+// في ملف src/routes/booking.route.js
+router.get(
+  "/host/earnings",
+  auth,
+  roleMiddleware(["host"]),
+  bookingController.getHostEarnings,
+);
 // PATCH /api/v1/bookings/:id/confirm
 router.patch(
   "/:id/confirm",
@@ -60,26 +63,16 @@ router.patch(
 
 // PATCH /api/v1/bookings/:id/reject
 router.patch(
-    "/:id/reject",
-    [
-        auth,
-        ...bookingIdValidation,
-        roleMiddleware(["host", "admin"]),
-    ],
-    asyncHandler(
-        bookingController.rejectBooking
-    )
+  "/:id/reject",
+  [auth, ...bookingIdValidation, roleMiddleware(["host", "admin"])],
+  asyncHandler(bookingController.rejectBooking),
 );
 
 // PATCH /api/v1/bookings/:id
 // Update booking details — Guest owner only
 router.patch(
   "/:id",
-  [
-    auth,
-    roleMiddleware(["guest"]),
-    ...updateBookingValidation,
-  ],
+  [auth, roleMiddleware(["guest"]), ...updateBookingValidation],
   asyncHandler(bookingController.updateBooking),
 );
 
