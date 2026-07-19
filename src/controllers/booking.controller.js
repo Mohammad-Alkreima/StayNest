@@ -5,162 +5,198 @@ const User = require("../models/User");
 const LOYALTY_LEVELS = require("../constants/loyaltyLevels");
 
 class BookingController {
-    getLoyaltyLevel = (totalBookings) => {
-         return LOYALTY_LEVELS.find(
-             (level) => totalBookings >= level.minCompletedBookings
-         );
-    };
+  getLoyaltyLevel = (totalBookings) => {
+    return LOYALTY_LEVELS.find(
+      (level) => totalBookings >= level.minCompletedBookings,
+    );
+  };
 
-    createBooking = async (req, res) => {
-        const guestId = req._user.id;
-        const { propertyId, startDate, endDate, paymentMethod } = req.body;
+  createBooking = async (req, res) => {
+    const guestId = req._user.id;
+    const { propertyId, startDate, endDate, paymentMethod } = req.body;
 
-        const start = new Date(startDate);
-        const end = new Date(endDate);
+    const start = new Date(startDate);
+    const end = new Date(endDate);
 
-        start.setHours(0, 0, 0, 0);
-        end.setHours(0, 0, 0, 0);
+    start.setHours(0, 0, 0, 0);
+    end.setHours(0, 0, 0, 0);
 
-        // Check if property exists
-        const property = await Property.findOne({
-            _id: propertyId,
-            isDeleted: false,
-        });
+    // Check if property exists
+    const property = await Property.findOne({
+      _id: propertyId,
+      isDeleted: false,
+    });
 
-        if (!property) {
-            return res.status(404).json({
-                success: false,
-                message: "Property not found.",
-            });
-        }
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found.",
+      });
+    }
 
-        // Check property availability
-        if (property.status !== "available") {
-            return res.status(400).json({
-                success: false,
-                message: "Property not available.",
-            });
-        }
+    // Check property availability
+    if (property.status !== "available") {
+      return res.status(400).json({
+        success: false,
+        message: "Property not available.",
+      });
+    }
 
-        // Prevent the host from booking his own property
-        if (property.hostId.toString() === guestId) {
-            return res.status(403).json({
-                success: false,
-                message: "Cannot book your own property.",
-            });
-        }
+    // Prevent the host from booking his own property
+    if (property.hostId.toString() === guestId) {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot book your own property.",
+      });
+    }
 
-        // Get guest information to calculate loyalty discount
-        const guest = await User.findById(guestId);
+    // Get guest information to calculate loyalty discount
+    const guest = await User.findById(guestId);
 
-         if (!guest) {
-              return res.status(404).json({
-                  success: false,
-                  message: "Guest not found.",
-              });
-         }
-        const loyaltyLevel = this.getLoyaltyLevel(
-              guest.totalBookings || 0
-        );
+    if (!guest) {
+      return res.status(404).json({
+        success: false,
+        message: "Guest not found.",
+      });
+    }
+    const loyaltyLevel = this.getLoyaltyLevel(guest.totalBookings || 0);
 
-        // Check overlapping bookings
-        const overlap = await Booking.findOne({
-            propertyId,
-            isDeleted: false,
-            status: { $in: ["pending", "confirmed"] },
-            startDate: { $lt: end },
-            endDate: { $gt: start },
-        });
+    // Check overlapping bookings
+    const overlap = await Booking.findOne({
+      propertyId,
+      isDeleted: false,
+      status: { $in: ["pending", "confirmed"] },
+      startDate: { $lt: end },
+      endDate: { $gt: start },
+    });
 
-        if (overlap) {
-            return res.status(409).json({
-                success: false,
-                message: "Dates overlap with existing booking.",
-            });
-        }
+    if (overlap) {
+      return res.status(409).json({
+        success: false,
+        message: "Dates overlap with existing booking.",
+      });
+    }
 
-        // Calculate number of nights
-        const numberOfNights = Math.round(
-            (end - start) / (1000 * 60 * 60 * 24)
-        );
+    // Calculate number of nights
+    const numberOfNights = Math.round((end - start) / (1000 * 60 * 60 * 24));
 
-        if (numberOfNights < 1) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid duration.",
-            });
-        }
+    if (numberOfNights < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid duration.",
+      });
+    }
 
-        // Calculate prices
-        const subtotal =
-            numberOfNights * property.pricePerNight;
+    // Calculate prices
+    const subtotal = numberOfNights * property.pricePerNight;
 
-        // Calculate the loyalty discount amount based on the guest's level
-        const discountAmount =
-            subtotal * (loyaltyLevel.discountPercentage / 100);
+    // Calculate the loyalty discount amount based on the guest's level
+    const discountAmount = subtotal * (loyaltyLevel.discountPercentage / 100);
 
-        // Calculate the final price after applying the discount
-        // The loyalty discount applies only to the subtotal,
-        // not to the cleaning fee or service fee.
-        const totalPrice =
-            subtotal -
-            discountAmount +
-            (property.cleaningFee || 0) +
-            (property.serviceFee || 0);
+    // Calculate the final price after applying the discount
+    // The loyalty discount applies only to the subtotal,
+    // not to the cleaning fee or service fee.
+    const totalPrice =
+      subtotal -
+      discountAmount +
+      (property.cleaningFee || 0) +
+      (property.serviceFee || 0);
 
+    // Create booking
+    const booking = await Booking.create({
+      propertyId,
+      hostId: property.hostId,
+      guestId,
+      startDate: start,
+      endDate: end,
+      numberOfNights,
+      pricingSnapshot: {
+        pricePerNight: property.pricePerNight,
 
-        // Create booking
-        const booking = await Booking.create({
-            propertyId,
-            hostId: property.hostId,
-            guestId,
-            startDate: start,
-            endDate: end,
-            numberOfNights,
-            pricingSnapshot: {
-            pricePerNight: property.pricePerNight,
+        cleaningFee: property.cleaningFee || 0,
 
-            cleaningFee: property.cleaningFee || 0,
+        serviceFee: property.serviceFee || 0,
 
-            serviceFee: property.serviceFee || 0,
+        subtotal,
 
-            subtotal,
+        discountPercentage: loyaltyLevel.discountPercentage,
 
-            discountPercentage: loyaltyLevel.discountPercentage,
+        discountAmount,
 
-            discountAmount,
+        totalPrice,
+      },
+      paymentMethod: paymentMethod || "bankTransfer",
+    });
 
-            totalPrice,
-            },
-            paymentMethod: paymentMethod || "bankTransfer",
-        });
+    return res.status(201).json({
+      success: true,
+      message: "Booking created successfully.",
+      data: booking,
+    });
+  };
 
-        return res.status(201).json({
-            success: true,
-            message: "Booking created successfully.",
-            data: booking,
-        });
-    };
+  getHostBookings = async (req, res) => {
+    const hostId = req._user.id;
 
+    const bookings = await Booking.find({
+      hostId,
+      isDeleted: false,
+    })
+      .populate("propertyId", "title location")
+      .populate("guestId", "name email")
+      .sort({ createdAt: -1 });
 
-    getHostBookings = async (req, res) => {
-        const hostId = req._user.id;
+    return res.status(200).json({
+      success: true,
+      count: bookings.length,
+      data: bookings,
+    });
+  };
+  getHostEarnings = async (req, res) => {
+    const hostId = req._user.id;
+    const platformCommission = 0.1;
 
-        const bookings = await Booking.find({
-            hostId,
-            isDeleted: false,
-        })
-            .populate("propertyId", "title location")
-            .populate("guestId", "name email")
-            .sort({ createdAt: -1 });
+    const earnings = await Booking.aggregate([
+      {
+        $match: {
+          hostId: new mongoose.Types.ObjectId(hostId),
+          status: "completed",
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalGrossEarnings: { $sum: "$totalPrice" },
+          totalBookings: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          totalBookings: 1,
+          totalGrossEarnings: 1,
+          platformFees: {
+            $multiply: ["$totalGrossEarnings", platformCommission],
+          },
+          netEarnings: {
+            $subtract: [
+              "$totalGrossEarnings",
+              { $multiply: ["$totalGrossEarnings", platformCommission] },
+            ],
+          },
+        },
+      },
+    ]);
 
-        return res.status(200).json({
-            success: true,
-            count: bookings.length,
-            data: bookings,
-        });
-      };
-
+    res.status(200).json(
+      earnings[0] || {
+        totalBookings: 0,
+        totalGrossEarnings: 0,
+        platformFees: 0,
+        netEarnings: 0,
+      },
+    );
+  };
 
   // ──────────────────────────────────────────────
   // PATCH /api/v1/bookings/:id
@@ -209,8 +245,7 @@ class BookingController {
 
       // ─── 4. Check whether booking dates are being updated ─────────────────
       // Check whether the user provided a new start date or end date
-      const hasDateUpdate =
-        startDate !== undefined || endDate !== undefined;
+      const hasDateUpdate = startDate !== undefined || endDate !== undefined;
 
       // The following operations are required only when a booking date is updated
       if (hasDateUpdate) {
@@ -222,9 +257,7 @@ class BookingController {
             : new Date(booking.startDate);
 
         const finalEndDate =
-          endDate !== undefined
-            ? new Date(endDate)
-            : new Date(booking.endDate);
+          endDate !== undefined ? new Date(endDate) : new Date(booking.endDate);
 
         // ─── 6. Validate the final booking dates ────────────────────────────
         // Ensure the final dates are valid after merging existing and new values
@@ -307,8 +340,7 @@ class BookingController {
         if (overlappingBooking) {
           return res.status(409).json({
             success: false,
-            message:
-              "This property is already booked for the selected dates.",
+            message: "This property is already booked for the selected dates.",
           });
         }
 
@@ -353,8 +385,7 @@ class BookingController {
         }
 
         // Recalculate the accommodation subtotal using the original nightly price
-        const subtotal =
-          numberOfNights * pricingSnapshot.pricePerNight;
+        const subtotal = numberOfNights * pricingSnapshot.pricePerNight;
 
         // Preserve the original loyalty discount percentage
         const discountAmount =
@@ -376,7 +407,6 @@ class BookingController {
         booking.pricingSnapshot.subtotal = subtotal;
         booking.pricingSnapshot.discountAmount = discountAmount;
         booking.pricingSnapshot.totalPrice = totalPrice;
-        
       } // End of hasDateUpdate
 
       // ─── 11. Update payment method ────────────────────────────────────────
@@ -402,8 +432,7 @@ class BookingController {
       if (error.code === 11000) {
         return res.status(409).json({
           success: false,
-          message:
-            "This property is already booked for the selected dates.",
+          message: "This property is already booked for the selected dates.",
         });
       }
 
@@ -414,333 +443,305 @@ class BookingController {
     }
   };
 
-
-// ──────────────────────────────────────────────
-// PATCH /api/v1/bookings/:id/cancel
-// Cancel booking — Guest owner or Admin
-// ──────────────────────────────────────────────
-cancelBooking = async (req, res) => {
-  try {
-    const bookingId = req.params.id;
-    const loggedInUserId = req._user.id;
-    const loggedInUserRole = req._user.role;
-    const { cancellationReason } = req.body;
-    // ─── 1. Get the booking ─────────────────────────────────────
-    // Find the booking only if it has not been soft-deleted
-    const booking = await Booking.findOne({
-      _id: bookingId,
-      isDeleted: false,
-    });
-
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: "Booking not found or has been removed.",
+  // ──────────────────────────────────────────────
+  // PATCH /api/v1/bookings/:id/cancel
+  // Cancel booking — Guest owner or Admin
+  // ──────────────────────────────────────────────
+  cancelBooking = async (req, res) => {
+    try {
+      const bookingId = req.params.id;
+      const loggedInUserId = req._user.id;
+      const loggedInUserRole = req._user.role;
+      const { cancellationReason } = req.body;
+      // ─── 1. Get the booking ─────────────────────────────────────
+      // Find the booking only if it has not been soft-deleted
+      const booking = await Booking.findOne({
+        _id: bookingId,
+        isDeleted: false,
       });
-    }
 
-    // ─── 2. Check cancellation permission ───────────────────────
-    // Allow cancellation only for the booking owner or an admin
-    const isBookingOwner =
-      booking.guestId.toString() === loggedInUserId;
-
-    const isAdmin = loggedInUserRole === "admin";
-
-    if (!isBookingOwner && !isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: "You are not allowed to cancel this booking.",
-      });
-    }
-
-    // ─── 3. Check booking status ─────────────────────────────────
-    // Allow cancellation only for pending or confirmed bookings
-    if (!["pending", "confirmed"].includes(booking.status)) {
-      return res.status(400).json({
-        success: false,
-        message: `A ${booking.status} booking cannot be cancelled.`,
-      });
-    }
-
-    // ─── 4. Prevent cancellation after the stay has started ─────
-    // Compare calendar days only, without considering the time
-    const now = new Date();
-
-    const today = new Date(now);
-    today.setHours(0, 0, 0, 0);
-
-    const normalizedStartDate = new Date(booking.startDate);
-    normalizedStartDate.setHours(0, 0, 0, 0);
-
-    if (normalizedStartDate <= today) {
-      return res.status(400).json({
-        success: false,
-        message: "This booking cannot be cancelled after the stay has started.",
-      });
-    }
-
-    // ─── 5. Calculate days before check-in ──────────────────────
-    // Used later to determine the refund policy
-    const MS_PER_DAY = 1000 * 60 * 60 * 24;
-
-    const todayUTC = Date.UTC(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate()
-    );
-
-    const startDateUTC = Date.UTC(
-      normalizedStartDate.getFullYear(),
-      normalizedStartDate.getMonth(),
-      normalizedStartDate.getDate()
-    );
-
-    const daysBeforeStart = Math.floor(
-      (startDateUTC - todayUTC) / MS_PER_DAY
-    );
-
-    // ─── 6. Calculate the refund ─────────────────────────────────
-    // Refunds apply only to bookings that have already been paid
-    let refundPercentage = 0;
-    let refundAmount = 0;
-
-    if (booking.paymentStatus === "paid") {
-      // Determine the refund percentage based on how early
-      // the booking was cancelled before check-in
-      if (daysBeforeStart >= 7) {
-        refundPercentage = 100;
-      } else if (daysBeforeStart >= 2) {
-        refundPercentage = 50;
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: "Booking not found or has been removed.",
+        });
       }
 
-      // Get the final amount that was agreed upon
-      // when the booking was created
-      const bookingTotalPrice =
-        booking.pricingSnapshot?.totalPrice;
+      // ─── 2. Check cancellation permission ───────────────────────
+      // Allow cancellation only for the booking owner or an admin
+      const isBookingOwner = booking.guestId.toString() === loggedInUserId;
 
-      // Ensure the stored booking price is valid
-      // before using it to calculate a refund
-      if (
-        !Number.isFinite(bookingTotalPrice) ||
-        bookingTotalPrice < 0
-      ) {
-        return res.status(409).json({
+      const isAdmin = loggedInUserRole === "admin";
+
+      if (!isBookingOwner && !isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to cancel this booking.",
+        });
+      }
+
+      // ─── 3. Check booking status ─────────────────────────────────
+      // Allow cancellation only for pending or confirmed bookings
+      if (!["pending", "confirmed"].includes(booking.status)) {
+        return res.status(400).json({
+          success: false,
+          message: `A ${booking.status} booking cannot be cancelled.`,
+        });
+      }
+
+      // ─── 4. Prevent cancellation after the stay has started ─────
+      // Compare calendar days only, without considering the time
+      const now = new Date();
+
+      const today = new Date(now);
+      today.setHours(0, 0, 0, 0);
+
+      const normalizedStartDate = new Date(booking.startDate);
+      normalizedStartDate.setHours(0, 0, 0, 0);
+
+      if (normalizedStartDate <= today) {
+        return res.status(400).json({
           success: false,
           message:
-            "Booking pricing snapshot is missing or invalid. Refund cannot be calculated.",
+            "This booking cannot be cancelled after the stay has started.",
         });
       }
 
-      // Calculate the refundable amount from the stored final price
-      refundAmount = Number(
-        ((bookingTotalPrice * refundPercentage) / 100).toFixed(2)
+      // ─── 5. Calculate days before check-in ──────────────────────
+      // Used later to determine the refund policy
+      const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+      const todayUTC = Date.UTC(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate(),
       );
-    }
 
-    // ─── 7. Update cancellation information ─────────────────────
-    // Mark the booking as cancelled and store the cancellation details
-    booking.status = "cancelled";
-    booking.cancelledAt = now;
-    booking.cancelledBy = loggedInUserId;
-    booking.cancelledByRole = loggedInUserRole;
-    booking.cancellationReason = cancellationReason?.trim() || null;
-    booking.refund = {
-      refundPercentage,
-      refundAmount,
-      refundStatus:
-          refundAmount > 0
-              ? "pending"
-              : "notRequired",
-      refundedAt: null,
-    };
-  
-    // ─── 8. Save the updated booking ─────────────────────────────
-    // Save all cancellation changes to the database
-    await booking.save();
+      const startDateUTC = Date.UTC(
+        normalizedStartDate.getFullYear(),
+        normalizedStartDate.getMonth(),
+        normalizedStartDate.getDate(),
+      );
 
-    // ─── 9. Return success response ──────────────────────────────
-    // Return the updated booking after successful cancellation
-    return res.status(200).json({
-      success: true,
-      message: "Booking cancelled successfully.",
-      data: booking,
-    });
+      const daysBeforeStart = Math.floor(
+        (startDateUTC - todayUTC) / MS_PER_DAY,
+      );
 
-  } catch (error) {
-    console.error("Cancel Booking Error:", error);
+      // ─── 6. Calculate the refund ─────────────────────────────────
+      // Refunds apply only to bookings that have already been paid
+      let refundPercentage = 0;
+      let refundAmount = 0;
 
-    return res.status(500).json({
-      success: false,
-      message: "Internal Server Error during booking cancellation.",
-    });
-  }
-};
-
-// ──────────────────────────────────────────────
-// PATCH /api/v1/bookings/:id/confirm
-// Confirm booking — Property Host or Admin
-// ──────────────────────────────────────────────
-confirmBooking = async (req, res) => {
-  try {
-    // Get booking ID and logged-in user information
-    const bookingId = req.params.id;
-    const loggedInUserId = req._user.id;
-    const loggedInUserRole = req._user.role;
-
-    // ─── 1. Find booking ─────────────────────────────
-    const booking = await Booking.findOne({
-      _id: bookingId,
-      isDeleted: false,
-    });
-
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: "Booking not found or has been removed.",
-      });
-    }
-
-    // ─── 2. Check permission ─────────────────────────
-    const isBookingHost =
-      booking.hostId.toString() === loggedInUserId;
-
-    const isAdmin = loggedInUserRole === "admin";
-
-    if (!isBookingHost && !isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: "You are not allowed to confirm this booking.",
-      });
-    }
-
-    // ─── 3. Check booking status ─────────────────────
-    if (booking.status !== "pending") {
-      return res.status(400).json({
-        success: false,
-        message: `A ${booking.status} booking cannot be confirmed.`,
-      });
-    }
-
-    // ─── 4. Confirm the booking ─────────────────────
-    // Change the booking status from pending to confirmed
-    booking.status = "confirmed";
-
-    // Store the exact time when the booking was confirmed
-    booking.confirmedAt = new Date();
-
-    // ─── 5. Save the booking ────────────────────────
-    await booking.save();
-
-    // ─── 6. Return success response ─────────────────
-    return res.status(200).json({
-      success: true,
-      message: "Booking confirmed successfully.",
-      data: booking,
-    });
-
-  } catch (error) {
-    console.error("Confirm Booking Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Internal Server Error during booking confirmation.",
-    });
-  }
-};
-
-
-// Reject booking
-rejectBooking = async (req, res) => {
-    try {
-        const bookingId = req.params.id;
-
-        const { rejectionReason } = req.body;
-
-        const loggedInUserId = req._user.id;
-        const loggedInUserRole = req._user.role;
-
-        // Find booking
-        const booking = await Booking.findOne({
-            _id: bookingId,
-            isDeleted: false,
-        });
-
-        if (!booking) {
-            return res.status(404).json({
-                success: false,
-                message: "Booking not found.",
-            });
+      if (booking.paymentStatus === "paid") {
+        // Determine the refund percentage based on how early
+        // the booking was cancelled before check-in
+        if (daysBeforeStart >= 7) {
+          refundPercentage = 100;
+        } else if (daysBeforeStart >= 2) {
+          refundPercentage = 50;
         }
 
-        // Check authorization
-        const isBookingHost =
-            booking.hostId.toString() === loggedInUserId.toString();
+        // Get the final amount that was agreed upon
+        // when the booking was created
+        const bookingTotalPrice = booking.pricingSnapshot?.totalPrice;
 
-        const isAdmin =
-            loggedInUserRole === "admin";
-
-        if (!isBookingHost && !isAdmin) {
-            return res.status(403).json({
-                success: false,
-                message:
-                    "You are not allowed to reject this booking.",
-            });
-        }
-
-        // Only pending bookings can be rejected
-        if (booking.status !== "pending") {
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Only pending bookings can be rejected.",
-            });
-        }
-
-        // Validate rejection reason
-        if (
-            !rejectionReason ||
-            !rejectionReason.trim()
-        ) {
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Rejection reason is required.",
-            });
-        }
-
-        // Reject booking
-        booking.status = "rejected";
-
-        booking.rejectedAt = new Date();
-
-        booking.rejectedBy = loggedInUserId;
-
-        booking.rejectionReason =
-            rejectionReason.trim();
-
-        await booking.save();
-
-        return res.status(200).json({
-            success: true,
-            message:
-                "Booking rejected successfully.",
-            data: booking,
-        });
-    } catch (error) {
-        return res.status(500).json({
+        // Ensure the stored booking price is valid
+        // before using it to calculate a refund
+        if (!Number.isFinite(bookingTotalPrice) || bookingTotalPrice < 0) {
+          return res.status(409).json({
             success: false,
             message:
-                "Something went wrong while rejecting the booking.",
-            error: error.message,
-        });
+              "Booking pricing snapshot is missing or invalid. Refund cannot be calculated.",
+          });
+        }
+
+        // Calculate the refundable amount from the stored final price
+        refundAmount = Number(
+          ((bookingTotalPrice * refundPercentage) / 100).toFixed(2),
+        );
+      }
+
+      // ─── 7. Update cancellation information ─────────────────────
+      // Mark the booking as cancelled and store the cancellation details
+      booking.status = "cancelled";
+      booking.cancelledAt = now;
+      booking.cancelledBy = loggedInUserId;
+      booking.cancelledByRole = loggedInUserRole;
+      booking.cancellationReason = cancellationReason?.trim() || null;
+      booking.refund = {
+        refundPercentage,
+        refundAmount,
+        refundStatus: refundAmount > 0 ? "pending" : "notRequired",
+        refundedAt: null,
+      };
+
+      // ─── 8. Save the updated booking ─────────────────────────────
+      // Save all cancellation changes to the database
+      await booking.save();
+
+      // ─── 9. Return success response ──────────────────────────────
+      // Return the updated booking after successful cancellation
+      return res.status(200).json({
+        success: true,
+        message: "Booking cancelled successfully.",
+        data: booking,
+      });
+    } catch (error) {
+      console.error("Cancel Booking Error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Internal Server Error during booking cancellation.",
+      });
     }
-};
+  };
 
+  // ──────────────────────────────────────────────
+  // PATCH /api/v1/bookings/:id/confirm
+  // Confirm booking — Property Host or Admin
+  // ──────────────────────────────────────────────
+  confirmBooking = async (req, res) => {
+    try {
+      // Get booking ID and logged-in user information
+      const bookingId = req.params.id;
+      const loggedInUserId = req._user.id;
+      const loggedInUserRole = req._user.role;
 
+      // ─── 1. Find booking ─────────────────────────────
+      const booking = await Booking.findOne({
+        _id: bookingId,
+        isDeleted: false,
+      });
 
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: "Booking not found or has been removed.",
+        });
+      }
 
+      // ─── 2. Check permission ─────────────────────────
+      const isBookingHost = booking.hostId.toString() === loggedInUserId;
+
+      const isAdmin = loggedInUserRole === "admin";
+
+      if (!isBookingHost && !isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to confirm this booking.",
+        });
+      }
+
+      // ─── 3. Check booking status ─────────────────────
+      if (booking.status !== "pending") {
+        return res.status(400).json({
+          success: false,
+          message: `A ${booking.status} booking cannot be confirmed.`,
+        });
+      }
+
+      // ─── 4. Confirm the booking ─────────────────────
+      // Change the booking status from pending to confirmed
+      booking.status = "confirmed";
+
+      // Store the exact time when the booking was confirmed
+      booking.confirmedAt = new Date();
+
+      // ─── 5. Save the booking ────────────────────────
+      await booking.save();
+
+      // ─── 6. Return success response ─────────────────
+      return res.status(200).json({
+        success: true,
+        message: "Booking confirmed successfully.",
+        data: booking,
+      });
+    } catch (error) {
+      console.error("Confirm Booking Error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Internal Server Error during booking confirmation.",
+      });
+    }
+  };
+
+  // Reject booking
+  rejectBooking = async (req, res) => {
+    try {
+      const bookingId = req.params.id;
+
+      const { rejectionReason } = req.body;
+
+      const loggedInUserId = req._user.id;
+      const loggedInUserRole = req._user.role;
+
+      // Find booking
+      const booking = await Booking.findOne({
+        _id: bookingId,
+        isDeleted: false,
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: "Booking not found.",
+        });
+      }
+
+      // Check authorization
+      const isBookingHost =
+        booking.hostId.toString() === loggedInUserId.toString();
+
+      const isAdmin = loggedInUserRole === "admin";
+
+      if (!isBookingHost && !isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to reject this booking.",
+        });
+      }
+
+      // Only pending bookings can be rejected
+      if (booking.status !== "pending") {
+        return res.status(400).json({
+          success: false,
+          message: "Only pending bookings can be rejected.",
+        });
+      }
+
+      // Validate rejection reason
+      if (!rejectionReason || !rejectionReason.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "Rejection reason is required.",
+        });
+      }
+
+      // Reject booking
+      booking.status = "rejected";
+
+      booking.rejectedAt = new Date();
+
+      booking.rejectedBy = loggedInUserId;
+
+      booking.rejectionReason = rejectionReason.trim();
+
+      await booking.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Booking rejected successfully.",
+        data: booking,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: "Something went wrong while rejecting the booking.",
+        error: error.message,
+      });
+    }
+  };
 }
-
-
 
 module.exports = new BookingController();

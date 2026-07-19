@@ -117,139 +117,116 @@ class propertyController {
     });
   };
   getAllProperties = async (req, res) => {
-    try {
-      let filterObj = { isDeleted: false, status: "available" };
+    let filterObj = { isDeleted: false, status: "available" };
 
-      // 1. إضافة المعاملات الجغرافية الجديدة للفلاتر المسموحة (lng, lat, distance)
-      const allowedFilters = [
-        "title",
-        "location", // سيبقى للبحث النصي العادي كبديل (Fallback)
-        "minPrice",
-        "maxPrice",
-        "maxGuests",
-        "amenities",
-        "status",
-        "lng", // خط الطول ممرر من الفرونت إند
-        "lat", // دائرة العرض ممررة من الفرونت إند
-        "distance", // مسافة البحث بالكيلومتر (اختياري)
-      ];
+    const allowedFilters = [
+      "title",
+      "location",
+      "minPrice",
+      "maxPrice",
+      "maxGuests",
+      "amenities",
+      "status",
+      "lng",
+      "lat",
+      "distance",
+    ];
 
-      const safeQuery = {};
-      for (const key in req.query) {
-        if (allowedFilters.includes(key)) {
-          safeQuery[key] =
-            typeof req.query[key] === "string"
-              ? req.query[key].trim()
-              : req.query[key];
-        }
+    const safeQuery = {};
+    for (const key in req.query) {
+      if (allowedFilters.includes(key)) {
+        safeQuery[key] =
+          typeof req.query[key] === "string"
+            ? req.query[key].trim()
+            : req.query[key];
       }
-
-      // 🌍 [ميزة جديدة] أ. الفلترة الجغرافية (Geospatial Filter)
-      // إذا قام الفرونت إند بإرسال الإحداثيات الجغرافية بدقة
-      if (safeQuery.lng && safeQuery.lat) {
-        const longitude = Number(safeQuery.lng);
-        const latitude = Number(safeQuery.lat);
-
-        // المسافة الافتراضية للبحث إذا لم يحددها المستخدم (مثلاً 10 كم)
-        // نضرب بـ 1000 لأن المونغو يتعامل بالمتر
-        const maxDistanceInMeters = (Number(safeQuery.distance) || 10) * 1000;
-
-        if (!isNaN(longitude) && !isNaN(latitude)) {
-          filterObj["location.coordinates"] = {
-            $near: {
-              $geometry: {
-                type: "Point",
-                coordinates: [longitude, latitude], // الترتيب الإجباري لـ GeoJSON: [الطول, العرض]
-              },
-              $maxDistance: maxDistanceInMeters, // النطاق الأقصى للبحث بالمتر
-            },
-          };
-        }
-      }
-      // ↩️ بديل (Fallback): إذا لم يرسل إحداثيات وأرسل نص عادي، نبحث بالـ RegEx القديم
-      else if (safeQuery.location && typeof safeQuery.location === "string") {
-        const sanitizedLocation = safeQuery.location.replace(
-          /[-\/\\^$*+?.()|[\]{}]/g,
-          "\\$&",
-        );
-        // هنا نفترض أن حقل location يحتوي على address نصي بداخل الـ embedded schema
-        filterObj["location.address"] = new RegExp(sanitizedLocation, "i");
-      }
-
-      // ب. الفلترة بالاسم (حماية ضد ReDoS)
-      if (safeQuery.title && typeof safeQuery.title === "string") {
-        const sanitizedTitle = safeQuery.title.replace(
-          /[-\/\\^$*+?.()|[\]{}]/g,
-          "\\$&",
-        );
-        filterObj.title = new RegExp(sanitizedTitle, "i");
-      }
-
-      // ج. الفلترة الرقمية الديناميكية للسعر
-      if (safeQuery.minPrice || safeQuery.maxPrice) {
-        filterObj.pricePerNight = {};
-        if (safeQuery.minPrice) {
-          const min = Number(safeQuery.minPrice);
-          if (!isNaN(min) && min >= 0) filterObj.pricePerNight.$gte = min;
-        }
-        if (safeQuery.maxPrice) {
-          const max = Number(safeQuery.maxPrice);
-          if (!isNaN(max) && max > 0) filterObj.pricePerNight.$lte = max;
-        }
-        if (Object.keys(filterObj.pricePerNight).length === 0) {
-          delete filterObj.pricePerNight;
-        }
-      }
-
-      // د. الفلترة بحسب عدد الضيوف
-      if (safeQuery.maxGuests) {
-        const guests = Number(safeQuery.maxGuests);
-        if (!isNaN(guests) && guests > 0) {
-          filterObj.maxGuests = { $gte: guests };
-        }
-      }
-
-      // هـ. الفلترة الديناميكية داخل مصفوفة الميزات
-      if (safeQuery.amenities && typeof safeQuery.amenities === "string") {
-        const amenitiesArray = safeQuery.amenities
-          .split(",")
-          .map((item) => item.trim());
-        filterObj.amenities = { $all: amenitiesArray };
-      }
-
-      // --- الـ Sorting ---
-      let sortBy = "-createdAt";
-      if (req.query.sort && typeof req.query.sort === "string") {
-        const allowedSortFields = [
-          "pricePerNight",
-          "-pricePerNight",
-          "createdAt",
-          "-createdAt",
-        ];
-        if (allowedSortFields.includes(req.query.sort)) {
-          sortBy = req.query.sort;
-        }
-      }
-
-      // جلب البيانات مع عمل الـ Populate
-      const properties = await Property.find(filterObj)
-        .populate("hostId", "name email")
-        .sort(sortBy);
-
-      return res.status(200).json({
-        success: true,
-        count: properties.length,
-        message:
-          "Properties retrieved successfully based on your criteria 🔍🏡",
-        data: properties,
-      });
-    } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: "Internal Server Error during fetching properties",
-        error: error.message,
-      });
     }
+
+    if (safeQuery.lng && safeQuery.lat) {
+      const longitude = Number(safeQuery.lng);
+      const latitude = Number(safeQuery.lat);
+
+      const maxDistanceInMeters = (Number(safeQuery.distance) || 10) * 1000;
+
+      if (!isNaN(longitude) && !isNaN(latitude)) {
+        filterObj["location.coordinates"] = {
+          $near: {
+            $geometry: {
+              type: "Point",
+              coordinates: [longitude, latitude],
+            },
+            $maxDistance: maxDistanceInMeters,
+          },
+        };
+      }
+    } else if (safeQuery.location && typeof safeQuery.location === "string") {
+      const sanitizedLocation = safeQuery.location.replace(
+        /[-\/\\^$*+?.()|[\]{}]/g,
+        "\\$&",
+      );
+      filterObj["location.address"] = new RegExp(sanitizedLocation, "i");
+    }
+
+    if (safeQuery.title && typeof safeQuery.title === "string") {
+      const sanitizedTitle = safeQuery.title.replace(
+        /[-\/\\^$*+?.()|[\]{}]/g,
+        "\\$&",
+      );
+      filterObj.title = new RegExp(sanitizedTitle, "i");
+    }
+
+    if (safeQuery.minPrice || safeQuery.maxPrice) {
+      filterObj.pricePerNight = {};
+      if (safeQuery.minPrice) {
+        const min = Number(safeQuery.minPrice);
+        if (!isNaN(min) && min >= 0) filterObj.pricePerNight.$gte = min;
+      }
+      if (safeQuery.maxPrice) {
+        const max = Number(safeQuery.maxPrice);
+        if (!isNaN(max) && max > 0) filterObj.pricePerNight.$lte = max;
+      }
+      if (Object.keys(filterObj.pricePerNight).length === 0) {
+        delete filterObj.pricePerNight;
+      }
+    }
+
+    if (safeQuery.maxGuests) {
+      const guests = Number(safeQuery.maxGuests);
+      if (!isNaN(guests) && guests > 0) {
+        filterObj.maxGuests = { $gte: guests };
+      }
+    }
+
+    if (safeQuery.amenities && typeof safeQuery.amenities === "string") {
+      const amenitiesArray = safeQuery.amenities
+        .split(",")
+        .map((item) => item.trim());
+      filterObj.amenities = { $all: amenitiesArray };
+    }
+
+    let sortBy = "-createdAt";
+    if (req.query.sort && typeof req.query.sort === "string") {
+      const allowedSortFields = [
+        "pricePerNight",
+        "-pricePerNight",
+        "createdAt",
+        "-createdAt",
+      ];
+      if (allowedSortFields.includes(req.query.sort)) {
+        sortBy = req.query.sort;
+      }
+    }
+
+    const properties = await Property.find(filterObj)
+      .populate("hostId", "name email")
+      .sort(sortBy);
+
+    return res.status(200).json({
+      success: true,
+      count: properties.length,
+      message: "Properties retrieved successfully based on your criteria 🔍🏡",
+      data: properties,
+    });
   };
   getPropertyById = async (req, res) => {
     const { id } = req.params;
