@@ -2,7 +2,7 @@ const errorHandler = (err, req, res, next) => {
     let statusCode = err.statusCode || 500;
     let message = err.message || "Internal Server Error";
 
-    // إذا كان الخطأ قادماً من مكتبة multer
+    // if error coming form multer
     if (err.code === 'LIMIT_FILE_SIZE') {
         statusCode = 400;
         message = "File is too large! Max allowed size is 5MB."

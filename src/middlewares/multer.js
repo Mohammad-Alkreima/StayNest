@@ -1,11 +1,10 @@
 const multer = require("multer");
 
-// استخدام الذاكرة المؤقتة بدلاً من القرص الصلب
+// useing temp memory
 const storageCloud = multer.memoryStorage();
 
-// دالة الفلترة (هنا نحدد ما هو مسموح به)
+// filtering function
 const fileFilter = (req, file, cb) => {
-    // قائمة الأنواع المسموح بها (MIME Types)
     const allowedTypes = [
         "image/jpeg", 
         "image/jpg", 
@@ -14,10 +13,10 @@ const fileFilter = (req, file, cb) => {
     ];
 
     if (allowedTypes.includes(file.mimetype)) {
-        cb(null, true); // اقبل الملف
+        cb(null, true); // accept the file
     } else {
         const error = new Error("Invalid file type! Only JPEG, JPG, PNG and webp are allowed.");
-        error.statusCode = 400; // نحدد كود الخطأ
+        error.statusCode = 400;
         cb(error, false);
     }
 };
