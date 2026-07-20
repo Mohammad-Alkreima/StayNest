@@ -217,6 +217,7 @@ const bookingSchema = new mongoose.Schema(
   {
     timestamps: true,
     strict: true,
+    virtuals: true
   },
 );
 
@@ -238,5 +239,12 @@ bookingSchema.index(
     },
   },
 );
+
+bookingSchema.virtual("reviews", {
+  ref: "Review",
+  localField: "_id",
+  foreignField: "bookingId",
+  justOne: false
+});
 
 module.exports = mongoose.model("Booking", bookingSchema);

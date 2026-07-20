@@ -7,7 +7,6 @@ const refreshTokenService = (req, res) => {
         throw new Error("Refresh Token Required");
     }
 
-    // verifyRefreshToken سيرمي خطأ تلقائياً إذا انتهت صلاحيته
     const decoded = jwtService.verifyRefreshToken(refreshToken);
     
     const data = { 
@@ -22,7 +21,7 @@ const refreshTokenService = (req, res) => {
     cookiesService.setAccessToken(res, token);
     cookiesService.setRefreshToken(res, refToken);
 
-    return data; // إرجاع البيانات لاستخدامها في الـ middleware
+    return data; // return the data to using in the middleware
 }
 
 module.exports = refreshTokenService;
