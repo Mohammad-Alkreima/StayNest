@@ -1,4 +1,4 @@
-const { body, param } = require("express-validator");
+const { body, param, query } = require("express-validator");
 const validate = require("../middlewares/validate");
 
 const ALLOWED_PAYMENT_METHODS = ["creditCard", "bankTransfer", "cash", "paypal"];
@@ -52,12 +52,16 @@ const createBookingValidation = [
 
     return true;
   }),
-
-  body("paymentMethod")
-    .optional({ checkFalsy: true })
-    .isString()
-    .withMessage("paymentMethod must be a string")
-    .custom((value) => {
+   body("paymentMethod")
+  .optional()
+  .isString()
+  .withMessage("paymentMethod must be a string")
+  .bail()
+  .trim()
+  .notEmpty()
+  .withMessage("paymentMethod cannot be empty")
+  .bail()
+  .custom((value) => {
     if (!ALLOWED_PAYMENT_METHODS.includes(value)) {
       throw new Error(
         `Invalid paymentMethod. Allowed values: ${ALLOWED_PAYMENT_METHODS.join(", ")}`
@@ -66,11 +70,9 @@ const createBookingValidation = [
 
     return true;
   }),
-
   validate,
-];
 
-
+]
 
 // ─── Update booking data ─────────────────────────────────────────────────────
 const updateBookingValidation = [
@@ -172,7 +174,7 @@ const cancelBookingValidation = [
 
   // cancellationReason is optional, but when provided it must be a valid string
   body("cancellationReason")
-    .optional({ checkFalsy: true })
+    .optional()
     .isString()
     .withMessage("cancellationReason must be a string")
     .bail()
@@ -229,9 +231,73 @@ const bookingIdValidation = [
   validate,
 ];
 
+const getBookingsValidation = [
+  query("status")
+    .optional()
+    .isIn([
+      "pending",
+      "confirmed",
+      "rejected",
+      "expired",
+      "cancelled",
+      "completed",
+    ])
+    .withMessage(
+      "Status must be one of: pending, confirmed, rejected, expired, cancelled, completed.",
+    ),
+
+  query("paymentStatus")
+    .optional()
+    .isIn(["paid", "unpaid", "pending"])
+    .withMessage(
+    "Payment status must be one of: paid, unpaid, pending.",
+     ),
+
+  query("type")
+    .optional()
+    .isIn(["upcoming", "ongoing", "past"])
+    .withMessage("Type must be one of: upcoming, ongoing, past."),
+
+  query("sort")
+    .optional()
+    .isIn([
+      "newest",
+      "oldest",
+      "checkInSoonest",
+      "checkInLatest",
+      "priceHigh",
+      "priceLow",
+    ])
+    .withMessage(
+      "Sort must be one of: newest, oldest, checkInSoonest, checkInLatest, priceHigh, priceLow.",
+    ),
+
+  query("propertyId")
+    .optional()
+    .isMongoId()
+    .withMessage("Property ID must be a valid MongoDB ID."),
+
+  query("page")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("Page must be a positive integer."),
+
+  query("limit")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage("Limit must be an integer between 1 and 100."),
+
+
+
+validate,
+];
+
+
+
 module.exports = {
   createBookingValidation,
   updateBookingValidation,
   cancelBookingValidation,
   bookingIdValidation,
+  getBookingsValidation,
 };
