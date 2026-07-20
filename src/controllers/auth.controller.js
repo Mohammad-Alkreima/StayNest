@@ -186,7 +186,7 @@ class AuthController {
         await user.save();
 
         // send email
-        await sendEmail(user.email, resetToken);
+        await sendEmail(user.email, "Password Reset", `Copy this token to change your password: ${resetToken}`);
 
         res.status(200).json({ 
             token: resetToken,

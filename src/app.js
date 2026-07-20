@@ -8,6 +8,10 @@ const cookies = require("cookie-parser");
 const { limiter } = require("./middlewares/limiter");
 const xssSanitize = require("./middlewares/xss");
 const { default: mongoose } = require("mongoose");
+const updateVisibleReviews = require('./cron/reviewCron');
+
+// run Cron Job
+updateVisibleReviews();
 
 
 const startBookingCompletionJob = require(
@@ -31,6 +35,7 @@ app.get("/api/health", (req, res) => res.status(200).json("API is Healthy"));
 app.use("/api/v1/auth", require("./routes/auth.route"));
 app.use("/api/v1/properties", require("./routes/property.route"));
 app.use("/api/v1/bookings", require("./routes/booking.route"));
+app.use("/api/v1/reviews", require("./routes/review.route"));
 app.use(errorHandler);
 app.use(notFound);
 
@@ -44,7 +49,7 @@ mongoose
     startBookingExpirationJob();
 
     app.listen(PORT, () => {
-      console.log("✅ Connected to MongoDB");
+      console.log("Connected to MongoDB");
       console.log(`Server Is Running on http://localhost:${PORT}`);
     });
   })

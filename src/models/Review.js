@@ -6,16 +6,6 @@ const reviewSchema = new mongoose.Schema({
         ref: "Booking", 
         required: [true, "BookingId is required"] 
     },
-    guestId: { 
-        type: mongoose.Schema.Types.ObjectId, 
-        ref: "User", 
-        required: [true, "GuestId is required"] 
-    },
-    hostId: { 
-        type: mongoose.Schema.Types.ObjectId, 
-        ref: "User", 
-        required: [true, "Host Id is required"] 
-    },
     rating: { 
         type: Number, 
         min: 1, 
@@ -27,7 +17,38 @@ const reviewSchema = new mongoose.Schema({
         type: Boolean, 
         default: false
     },
-    visibleFrom: Date
+    visibleFrom: Date,
+    reviewerRole: {
+        type: String,
+        enum: ["guestToHost", "hostToGuest"],
+        required: true
+    },
+    reviewerId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        required: true, 
+        ref: "User"
+    },
+    reports: [{
+        reportedBy: { 
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User" 
+        },
+        reason: { 
+            type: String, 
+            required: true 
+        },
+        status: { 
+            type: String, 
+            enum: ["pending", "resolved", "dismissed"], 
+            default: "pending" },
+        createdAt: { 
+            type: Date, 
+            default: Date.now }
+    }],
+    isFlagged: { 
+        type: Boolean, 
+        default: false 
+    }
 }, {
     timestamps: true
 });

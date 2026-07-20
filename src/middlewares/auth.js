@@ -18,13 +18,13 @@ const auth = (req, res, next) => {
     
         next();
     } catch (error) {
-        // في حال فشل التحقق من الـ Access Token أو فشل التجديد
+        // if failed verfy from refreshtoken or tyring renew it
         try {
             const data = refreshTokenService(req, res);
             req._user = { ...data };
             return next();
         } catch (refreshError) {
-            // مسح الكوكيز التالفة/المنتهية وإرسال رد غير مصرح به
+            // clear expired tokens
             cookiesService.clearTokens(res);
             return res.status(401).json({
                 message: "Not Authorized",
