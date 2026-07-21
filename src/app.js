@@ -8,19 +8,14 @@ const cookies = require("cookie-parser");
 const { limiter } = require("./middlewares/limiter");
 const xssSanitize = require("./middlewares/xss");
 const { default: mongoose } = require("mongoose");
-const updateVisibleReviews = require('./cron/reviewCron');
+const updateVisibleReviews = require("./cron/reviewCron");
 
 // run Cron Job
 updateVisibleReviews();
 
+const startBookingCompletionJob = require("./jobs/bookingCompletion.job");
 
-const startBookingCompletionJob = require(
-  "./jobs/bookingCompletion.job"
-);
-
-const startBookingExpirationJob = require(
-  "./jobs/bookingExpiration.job"
-);
+const startBookingExpirationJob = require("./jobs/bookingExpiration.job");
 
 // middlewares
 app.use(limiter);
@@ -36,6 +31,7 @@ app.use("/api/v1/auth", require("./routes/auth.route"));
 app.use("/api/v1/properties", require("./routes/property.route"));
 app.use("/api/v1/bookings", require("./routes/booking.route"));
 app.use("/api/v1/reviews", require("./routes/review.route"));
+app.use("/api/v1/disputes", require("./routes/dispute.route"));
 app.use(errorHandler);
 app.use(notFound);
 
