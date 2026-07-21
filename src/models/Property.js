@@ -15,12 +15,12 @@ const propertySchema = new mongoose.Schema(
     location: {
       type: {
         type: String,
-        enum: ["Point"], // يجب أن تكون القيمة 'Point' حصراً
+        enum: ["Point"],
         required: true,
         default: "Point",
       },
       coordinates: {
-        type: [Number], // مصفوفة تحتوي على رقمين [خط الطول Longitude أولاً، ثم دائرة العرض Latitude]
+        type: [Number],
         required: true,
       },
       address: {
@@ -47,7 +47,7 @@ const propertySchema = new mongoose.Schema(
     images: [String],
     status: {
       type: String,
-      enum: ["available", "unavailable", "maintenance"],
+      enum: ["available", "unavailable", "maintenance", "suspended"],
       default: "available",
     },
     amenities: [String],

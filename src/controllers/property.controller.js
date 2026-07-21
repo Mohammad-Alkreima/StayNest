@@ -4,7 +4,6 @@ class propertyController {
   createProperty = async (req, res) => {
     const hostId = req._user.id;
 
-    // 1. جلب البيانات من الـ body
     const {
       title,
       description,
@@ -18,7 +17,6 @@ class propertyController {
       amenities,
     } = req.body;
 
-    // 🛑 جدار الحماية 1: التحقق من وجود الحقول الإجبارية
     if (!title || !location || !pricePerNight || !maxGuests) {
       return res.status(400).json({
         success: false,
@@ -27,7 +25,6 @@ class propertyController {
       });
     }
 
-    // ✅ تطهير البيانات النصية فقط — location هو Object جغرافي لا يُطبق عليه trim()
     const cleanedTitle = title.trim();
     const cleanedLocation = location;
     const cleanedDescription = description ? description.trim() : "";
@@ -39,7 +36,6 @@ class propertyController {
       });
     }
 
-    // 🛑 جدار الحماية 3: التحقق الصارم من الأرقام والأسعار المنطقية
     const parsedPrice = Number(pricePerNight);
     const parsedCleaningFee = Number(cleaningFee) || 0;
     const parsedServiceFee = Number(serviceFee) || 0;
@@ -72,7 +68,6 @@ class propertyController {
       });
     }
 
-    // 🛑 جدار الحماية 4: حماية المصفوفات
     if (images && !Array.isArray(images)) {
       return res.status(400).json({
         success: false,
@@ -94,7 +89,6 @@ class propertyController {
       });
     }
 
-    // تمرير المتغيرات المطهرة الجديدة (cleaned) لقاعدة البيانات
     const property = await Property.create({
       hostId,
       title: cleanedTitle,
@@ -250,7 +244,7 @@ class propertyController {
 
     return res.status(200).json({
       success: true,
-      message: "Property details retrieved 🔑",
+      message: "Property details retrieved ",
       data: property,
     });
   };
@@ -275,12 +269,10 @@ class propertyController {
       });
     }
 
-    // 🛑 جدار الحماية: حظر حقن أو تعديل الحقول الحساسة مثل (hostId أو isDeleted) عبر الـ body بالخطأ
     const updates = req.body;
     delete updates.hostId;
     delete updates.isDeleted;
 
-    // تطهير الأسعار إن وجدت في التحديث
     if (
       updates.pricePerNight &&
       (isNaN(Number(updates.pricePerNight)) ||
@@ -297,7 +289,7 @@ class propertyController {
       { $set: updates },
       {
         new: true,
-        runValidators: true, // تفعيل محقق المونغوس أثناء التعديل
+        runValidators: true,
       },
     );
 
@@ -309,16 +301,14 @@ class propertyController {
   };
   deleteProperty = async (req, res) => {
     const { id } = req.params;
-    const currentUserId = req._user.id; // التعديل المتوافق مع الـ AuthController الخاص بكم
+    const currentUserId = req._user.id;
 
-    // 1. التحقق من سلامة الـ ID الممرر
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res
         .status(400)
         .json({ success: false, message: "Invalid Property ID format." });
     }
 
-    // 2. البحث عن العقار والتأكد من وجوده وأنه غير محذوف مسبقاً
     const property = await Property.findOne({ _id: id, isDeleted: false });
     if (!property) {
       return res.status(404).json({
@@ -327,7 +317,6 @@ class propertyController {
       });
     }
 
-    // 3. جدار الحماية: التأكد أن الحاذف هو المالك الفعلي للعقار
     if (property.hostId.toString() !== currentUserId) {
       return res.status(403).json({
         success: false,
@@ -335,16 +324,14 @@ class propertyController {
       });
     }
 
-    // 🛑 4. الشرط الذكي: التحقق من وجود حجوزات نشطة (حالية) أو مستقبلية لم تنتهِ بعد
     const today = new Date();
 
     const activeOrFutureBooking = await Booking.findOne({
       propertyId: id,
-      status: { $nin: ["cancelled", "rejected"] }, // استبعاد الحجوزات الملغية أو المرفوضة
-      endDate: { $gte: today }, // تاريخ الانتهاء أكبر من أو يساوي اليوم (يعني الحجز شغال حالياً أو لسا حيبدأ بالمستقبل)
+      status: { $nin: ["cancelled", "rejected"] },
+      endDate: { $gte: today },
     });
 
-    // إذا وجدنا أي حجز ينطبق عليه الشرط، نمنع الحذف فوراً
     if (activeOrFutureBooking) {
       return res.status(400).json({
         success: false,
@@ -353,7 +340,6 @@ class propertyController {
       });
     }
 
-    // 5. إذا كان العقار خالياً من الحجوزات المستقبلية، نفذ الـ Soft Delete باحترافية
     property.isDeleted = true;
     property.status = "unavailable";
     await property.save();
