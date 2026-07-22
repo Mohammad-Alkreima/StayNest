@@ -3,7 +3,7 @@ class CookiesService {
         res.cookie("accessToken", value, {
             httpOnly: true, // http
             secure: false, // https
-            sameSite: "strict",
+            sameSite: "lax",
             maxAge: 60 * 60 * 1000 //  1h
         })
     }
@@ -12,7 +12,7 @@ class CookiesService {
         res.cookie("refreshToken", value, {
             httpOnly: true, // http
             secure: false, // https
-            sameSite: "strict",
+            sameSite: "lax",
             maxAge: 7 * 24 * 60 * 60 * 1000 //  7d
         })
     }

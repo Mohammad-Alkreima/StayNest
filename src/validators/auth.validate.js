@@ -25,6 +25,7 @@ const signupVaildation = [
         .escape(),
     
     body("password")
+        .notEmpty().withMessage("Password is required")
         .trim()
         .isString().withMessage("Password Must Be String")
         .isStrongPassword({
@@ -56,11 +57,11 @@ const signupVaildation = [
         .isMobilePhone().withMessage("Invalid Number Phone"),
 
     body("profileImage")
-        .isURL().withMessage("put an image url")
-        .trim()
         .optional({
             checkFalsy: true
-        }),
+        })
+        .isURL().withMessage("put an image url")
+        .trim(),
 
     validate
 ];
