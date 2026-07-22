@@ -28,8 +28,8 @@ router.patch(
 );
 
 router.get(
-  "/:id",
-  auth,
+  "/:disputeId"
+  ,auth,
   idMiddleware,
   asyncHandler(disputeController.getDisputeById),
 );
