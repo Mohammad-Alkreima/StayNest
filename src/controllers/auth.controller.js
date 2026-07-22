@@ -29,9 +29,11 @@ class AuthController {
     signup = async (req, res) => {
         const {name, email, password, role, phone, profileImage} = req.body;
 
-        const hashed = await passwordService.hash(password);
+        if(!password) {
+            return res.status(400).json({ message: "Password is required" });
+        }
 
-        let user = await User.create({name, email, password: hashed, role, phone, profileImage});
+        let user = await User.create({name, email, password, role, phone, profileImage, isOAuthUser: false});
         user = user.toObject();
         delete user.password;
 
@@ -47,6 +49,10 @@ class AuthController {
         let user = await User.findOne({email});
         if(!user) {
             return res.status(400).json("Invalid Data");
+        }
+
+        if (user.isOAuthUser && !user.password) {
+            return res.status(400).json({ message: "يرجى تسجيل الدخول باستخدام حساب جوجل" });
         }
 
         if(user.blocked) {
@@ -219,6 +225,20 @@ class AuthController {
         await user.save();
 
         res.status(200).json({ message: "Password updated successfully" });
+    };
+
+    googleCallback = async (req, res) => {
+        const user = req.user; // يأتي من passport
+
+        const token = jwtService.generateAccessToken({ id: user._id, email: user.email, role: user.role });
+        const refreshToken = jwtService.generateRefreshToken({ id: user._id, email: user.email, role: user.role });
+
+        cookiesService.setAccessToken(res, token);
+        cookiesService.setRefreshToken(res, refreshToken);
+
+        // res.redirect(`${process.env.FRONTEND_URL}`);
+        // res.redirect('http://localhost:3000/api/health');
+        res.redirect('http://localhost:3000/api/v1/auth/profile');
     };
 }
 
