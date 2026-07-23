@@ -9,6 +9,7 @@ const {
   createDisputeValidation,
   updateDisputeValidation,
   resolveDisputeValidation,
+  filterDisputesValidation
 } = require("../validators/dispute.validation");
 
 router.post(
@@ -27,12 +28,33 @@ router.patch(
   asyncHandler(disputeController.updateDispute),
 );
 
+
+router.get(
+  "/filter",
+  auth,
+  roleMiddleware("admin"),
+  filterDisputesValidation,
+  asyncHandler(disputeController.filterDisputes)
+);
+
+router.get(
+  "/:id",
+  auth,
 router.get(
   "/:disputeId"
   ,auth,
   idMiddleware,
   asyncHandler(disputeController.getDisputeById),
 );
+
+
+router.get(
+  "/",
+  auth,
+  roleMiddleware("admin"),
+  asyncHandler(disputeController.getAllDisputes)
+);
+
 
 router.patch(
   "/:id/resolve",
@@ -41,5 +63,9 @@ router.patch(
   resolveDisputeValidation,
   asyncHandler(disputeController.resolveDispute),
 );
+
+
+
+
 
 module.exports = router;

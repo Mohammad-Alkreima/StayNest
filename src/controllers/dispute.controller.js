@@ -4,6 +4,31 @@ const Property = require("../models/Property");
 const User = require("../models/User");
 
 class DisputeController {
+
+
+  getAllDisputes = async (req, res) => {
+    const limit = req._limit;
+    const page = req._page;
+    const skip = (page - 1) * limit;
+    const totalDisputes = await Dispute.countDocuments();
+    const pages = Math.ceil(totalDisputes / limit);
+    const disputes = await Dispute.find()
+        .populate("bookingId")
+        .populate("reporterId", "name email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit);
+
+    return res.status(200).json({
+        message: "Get All Disputes",
+        disputes,
+        page,
+        pages,
+        totalDisputes
+    });
+  }
+
+
   createDispute = async (req, res) => {
     console.log("USER FROM REQ:", req._user);
     const { bookingId, reason } = req.body;
@@ -147,6 +172,90 @@ class DisputeController {
       data: dispute,
     });
   };
+
+  filterDisputes = async (req, res) => {
+
+    const limit = req._limit;
+    const page = req._page;
+    const skip = (page - 1) * limit;
+
+    const { name, type, status } = req.query;
+    const user = await User.findOne({
+        name: {
+            $regex: name,
+            $options: "i"
+        }
+    });
+
+    if (!user) {
+        return res.status(404).json({
+            message: "User not found"
+        });
+    }
+
+
+    let bookingFilter = {};
+
+    if (type === "host") {
+        bookingFilter.hostId = user._id;
+    }
+
+    if (type === "guest") {
+        bookingFilter.guestId = user._id;
+    }
+
+    const bookings = await Booking.find(bookingFilter);
+
+    const bookingIds = bookings.map((booking) => booking._id);
+
+
+    let disputeFilter = {
+        bookingId: {
+            $in: bookingIds
+        }
+    };
+
+    if (status) {
+        disputeFilter.status = status;
+    }
+
+
+    const totalDisputes =
+        await Dispute.countDocuments(disputeFilter);
+
+    const pages = Math.ceil(totalDisputes / limit);
+
+
+    const disputes = await Dispute.find(disputeFilter)
+        .populate("bookingId")
+        .populate("reporterId", "name email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit);
+
+
+    return res.status(200).json({
+
+        message: "Filtered Disputes",
+
+        disputes,
+
+        totalDisputes,
+
+        page,
+
+        pages
+
+    });
+
+};
+
+}
+
+
+
+
+module.exports = new DisputeController();
   getDisputeById = async (req, res) => {
     const { disputeId } = req.params;
 
