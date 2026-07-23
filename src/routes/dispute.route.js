@@ -40,6 +40,9 @@ router.get(
 router.get(
   "/:id",
   auth,
+router.get(
+  "/:disputeId"
+  ,auth,
   idMiddleware,
   asyncHandler(disputeController.getDisputeById),
 );

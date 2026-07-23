@@ -17,30 +17,30 @@ if (!fs.existsSync(tempDir)) {
 // array
 const uploadToCloudinary = async (files) => {
     try {
-        // استخدام Promise.all لرفع كل الملفات في نفس الوقت
+        // to upload all files at the same time
         const uploadPromises = files.map(async (file) => {
-            // إنشاء مسار فريد للملف المؤقت لتجنب تداخل الأسماء (باستخدام الطابع الزمني)
+            // create a unique path for the temp file
             const uniqueName = `${Date.now()}-${file.originalname}`;
             const filePath = `${__dirname}/tmp/${uniqueName}`;
             
-            // كتابة الملف المؤقت في السيرفر الخاص بك
+            // write the temp file in the server
             fs.writeFileSync(filePath, file.buffer);
 
-            // رفع الملف إلى Cloudinary
+            // upload the file to cloudinary
             const result = await cloudinary.v2.uploader.upload(filePath, {
                 resource_type: "auto"
             });
 
-            // حذف الملف المؤقت فوراً بعد نجاح الرفع
+            // delete the temp file after success uploading
             fs.unlinkSync(filePath);
 
-            // إرجاع الرابط السحابي للملف الحالي
+            // return the url
             return result.secure_url;
         });
 
-        // انتظار انتهاء رفع جميع الملفات والتقاط روابطها
+        // waiting to finish uploading all files and cathing urls
         const secureUrls = await Promise.all(uploadPromises);
-        return secureUrls; // ستعود مصفوفة تحتوي على روابط الصور كاملة
+        return secureUrls; // return array contains all urls
 
     } catch (error) {
         console.error("Cloudinary Upload Error:", error.message);

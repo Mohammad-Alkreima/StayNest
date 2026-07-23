@@ -18,7 +18,7 @@ const userSchema = new mongoose.Schema({
     password: {
         type: String,
         minLength: 8,
-        required: [true, "password is required"]
+        // required: [true, "password is required"]
     },
     role: {
         type: String,
@@ -38,6 +38,9 @@ const userSchema = new mongoose.Schema({
     // reset password
     passwordResetToken: String,
     passwordResetExpires: Date,
+    googleId: { type: String },
+    facebookId: { type: String },
+    isOAuthUser: { type: Boolean, default: false },
     // block mechanism to sometime if he get failed 5 times
     blocked: { 
         type: Boolean,
@@ -52,14 +55,17 @@ const userSchema = new mongoose.Schema({
     timestamps: true
 });
 
+userSchema.path("password").validate(function(value) {
+    // do not need password is the user OAuth
+    if (this.isOAuthUser) return true;
+    // if not OAuth, you need password
+    return !!value;
+}, "Password is required for non-OAuth users");
+
 userSchema.pre("save", async function() {
-    // if password starts argon2 => the password is encrypted
-    if (this.password.startsWith("$argon2")) {
-        return;
+    if (this.password && !this.password.startsWith("$argon2")) {
+        this.password = await argon2.hash(this.password);
     }
-    
-    // or encryption password
-    this.password = await argon2.hash(this.password);
 });
 
 module.exports = mongoose.model("User", userSchema);

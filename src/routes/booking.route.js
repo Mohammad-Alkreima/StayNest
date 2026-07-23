@@ -4,22 +4,26 @@ const bookingController = require("../controllers/booking.controller");
 const auth = require("../middlewares/auth");
 const roleMiddleware = require("../middlewares/role");
 const asyncHandler = require("../utils/asyncHandler");
+
 const {
   createBookingValidation,
+  updateBookingValidation,
+  cancelBookingValidation,
   bookingIdValidation,
 } = require("../validators/bookingValidation");
 
-// POST /api/v1/bookings 
+// POST /api/v1/bookings
 router.post(
   "/",
   [auth, roleMiddleware(["guest"]), ...createBookingValidation],
   asyncHandler(bookingController.createBooking),
 );
 
+// GET /api/v1/bookings/my-bookings
 router.get(
   "/my-bookings",
   [auth, roleMiddleware(["host"])],
-  bookingController.getHostBookings
+  asyncHandler(bookingController.getHostBookings),
 );
 
 // GET /api/v1/bookings
@@ -29,20 +33,27 @@ router.get(
   asyncHandler(bookingController.getMyBookings),
 );
 
-// GET /api/v1/bookings/:id 
+// GET /api/v1/bookings/:id
 router.get(
   "/:id",
   [auth, ...bookingIdValidation, roleMiddleware(["guest", "admin"])],
   asyncHandler(bookingController.getBookingById),
 );
 
-// PATCH /api/v1/bookings/:id/cancel 
+// PATCH /api/v1/bookings/:id/cancel
 router.patch(
   "/:id/cancel",
-  [auth, ...bookingIdValidation, roleMiddleware(["guest", "admin"])],
+  [auth, roleMiddleware(["guest", "admin"]), ...cancelBookingValidation],
   asyncHandler(bookingController.cancelBooking),
 );
 
+// في ملف src/routes/booking.route.js
+router.get(
+  "/host/earnings",
+  auth,
+  roleMiddleware(["host"]),
+  bookingController.getHostEarnings,
+);
 // PATCH /api/v1/bookings/:id/confirm
 router.patch(
   "/:id/confirm",
@@ -50,7 +61,22 @@ router.patch(
   asyncHandler(bookingController.confirmBooking),
 );
 
-// DELETE /api/v1/bookings/:id 
+// PATCH /api/v1/bookings/:id/reject
+router.patch(
+  "/:id/reject",
+  [auth, ...bookingIdValidation, roleMiddleware(["host", "admin"])],
+  asyncHandler(bookingController.rejectBooking),
+);
+
+// PATCH /api/v1/bookings/:id
+// Update booking details — Guest owner only
+router.patch(
+  "/:id",
+  [auth, roleMiddleware(["guest"]), ...updateBookingValidation],
+  asyncHandler(bookingController.updateBooking),
+);
+
+// DELETE /api/v1/bookings/:id
 router.delete(
   "/:id",
   [auth, ...bookingIdValidation, roleMiddleware(["admin"])],

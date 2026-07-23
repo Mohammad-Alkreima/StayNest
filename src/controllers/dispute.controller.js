@@ -256,3 +256,22 @@ class DisputeController {
 
 
 module.exports = new DisputeController();
+  getDisputeById = async (req, res) => {
+    const { disputeId } = req.params;
+
+    const dispute = await Dispute.findById(disputeId);
+
+    if (!dispute) {
+      return res
+        .status(404)
+        .json({ success: false, message: "النزاع غير موجود" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "تم جلب بيانات النزاع بنجاح",
+      data: dispute,
+    });
+  };
+}
+module.exports = new DisputeController();

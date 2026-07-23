@@ -4,7 +4,6 @@ class propertyController {
   createProperty = async (req, res) => {
     const hostId = req._user.id;
 
-    // 1. جلب البيانات من الـ body
     const {
       title,
       description,
@@ -18,7 +17,6 @@ class propertyController {
       amenities,
     } = req.body;
 
-    // 🛑 جدار الحماية 1: التحقق من وجود الحقول الإجبارية
     if (!title || !location || !pricePerNight || !maxGuests) {
       return res.status(400).json({
         success: false,
@@ -27,7 +25,6 @@ class propertyController {
       });
     }
 
-    // ✅ تطهير البيانات النصية فقط — location هو Object جغرافي لا يُطبق عليه trim()
     const cleanedTitle = title.trim();
     const cleanedLocation = location;
     const cleanedDescription = description ? description.trim() : "";
@@ -39,7 +36,6 @@ class propertyController {
       });
     }
 
-    // 🛑 جدار الحماية 3: التحقق الصارم من الأرقام والأسعار المنطقية
     const parsedPrice = Number(pricePerNight);
     const parsedCleaningFee = Number(cleaningFee) || 0;
     const parsedServiceFee = Number(serviceFee) || 0;
@@ -72,7 +68,6 @@ class propertyController {
       });
     }
 
-    // 🛑 جدار الحماية 4: حماية المصفوفات
     if (images && !Array.isArray(images)) {
       return res.status(400).json({
         success: false,
@@ -94,7 +89,6 @@ class propertyController {
       });
     }
 
-    // تمرير المتغيرات المطهرة الجديدة (cleaned) لقاعدة البيانات
     const property = await Property.create({
       hostId,
       title: cleanedTitle,
@@ -117,139 +111,116 @@ class propertyController {
     });
   };
   getAllProperties = async (req, res) => {
-    try {
-      let filterObj = { isDeleted: false, status: "available" };
+    let filterObj = { isDeleted: false, status: "available" };
 
-      // 1. إضافة المعاملات الجغرافية الجديدة للفلاتر المسموحة (lng, lat, distance)
-      const allowedFilters = [
-        "title",
-        "location", // سيبقى للبحث النصي العادي كبديل (Fallback)
-        "minPrice",
-        "maxPrice",
-        "maxGuests",
-        "amenities",
-        "status",
-        "lng", // خط الطول ممرر من الفرونت إند
-        "lat", // دائرة العرض ممررة من الفرونت إند
-        "distance", // مسافة البحث بالكيلومتر (اختياري)
-      ];
+    const allowedFilters = [
+      "title",
+      "location",
+      "minPrice",
+      "maxPrice",
+      "maxGuests",
+      "amenities",
+      "status",
+      "lng",
+      "lat",
+      "distance",
+    ];
 
-      const safeQuery = {};
-      for (const key in req.query) {
-        if (allowedFilters.includes(key)) {
-          safeQuery[key] =
-            typeof req.query[key] === "string"
-              ? req.query[key].trim()
-              : req.query[key];
-        }
+    const safeQuery = {};
+    for (const key in req.query) {
+      if (allowedFilters.includes(key)) {
+        safeQuery[key] =
+          typeof req.query[key] === "string"
+            ? req.query[key].trim()
+            : req.query[key];
       }
-
-      // 🌍 [ميزة جديدة] أ. الفلترة الجغرافية (Geospatial Filter)
-      // إذا قام الفرونت إند بإرسال الإحداثيات الجغرافية بدقة
-      if (safeQuery.lng && safeQuery.lat) {
-        const longitude = Number(safeQuery.lng);
-        const latitude = Number(safeQuery.lat);
-
-        // المسافة الافتراضية للبحث إذا لم يحددها المستخدم (مثلاً 10 كم)
-        // نضرب بـ 1000 لأن المونغو يتعامل بالمتر
-        const maxDistanceInMeters = (Number(safeQuery.distance) || 10) * 1000;
-
-        if (!isNaN(longitude) && !isNaN(latitude)) {
-          filterObj["location.coordinates"] = {
-            $near: {
-              $geometry: {
-                type: "Point",
-                coordinates: [longitude, latitude], // الترتيب الإجباري لـ GeoJSON: [الطول, العرض]
-              },
-              $maxDistance: maxDistanceInMeters, // النطاق الأقصى للبحث بالمتر
-            },
-          };
-        }
-      }
-      // ↩️ بديل (Fallback): إذا لم يرسل إحداثيات وأرسل نص عادي، نبحث بالـ RegEx القديم
-      else if (safeQuery.location && typeof safeQuery.location === "string") {
-        const sanitizedLocation = safeQuery.location.replace(
-          /[-\/\\^$*+?.()|[\]{}]/g,
-          "\\$&",
-        );
-        // هنا نفترض أن حقل location يحتوي على address نصي بداخل الـ embedded schema
-        filterObj["location.address"] = new RegExp(sanitizedLocation, "i");
-      }
-
-      // ب. الفلترة بالاسم (حماية ضد ReDoS)
-      if (safeQuery.title && typeof safeQuery.title === "string") {
-        const sanitizedTitle = safeQuery.title.replace(
-          /[-\/\\^$*+?.()|[\]{}]/g,
-          "\\$&",
-        );
-        filterObj.title = new RegExp(sanitizedTitle, "i");
-      }
-
-      // ج. الفلترة الرقمية الديناميكية للسعر
-      if (safeQuery.minPrice || safeQuery.maxPrice) {
-        filterObj.pricePerNight = {};
-        if (safeQuery.minPrice) {
-          const min = Number(safeQuery.minPrice);
-          if (!isNaN(min) && min >= 0) filterObj.pricePerNight.$gte = min;
-        }
-        if (safeQuery.maxPrice) {
-          const max = Number(safeQuery.maxPrice);
-          if (!isNaN(max) && max > 0) filterObj.pricePerNight.$lte = max;
-        }
-        if (Object.keys(filterObj.pricePerNight).length === 0) {
-          delete filterObj.pricePerNight;
-        }
-      }
-
-      // د. الفلترة بحسب عدد الضيوف
-      if (safeQuery.maxGuests) {
-        const guests = Number(safeQuery.maxGuests);
-        if (!isNaN(guests) && guests > 0) {
-          filterObj.maxGuests = { $gte: guests };
-        }
-      }
-
-      // هـ. الفلترة الديناميكية داخل مصفوفة الميزات
-      if (safeQuery.amenities && typeof safeQuery.amenities === "string") {
-        const amenitiesArray = safeQuery.amenities
-          .split(",")
-          .map((item) => item.trim());
-        filterObj.amenities = { $all: amenitiesArray };
-      }
-
-      // --- الـ Sorting ---
-      let sortBy = "-createdAt";
-      if (req.query.sort && typeof req.query.sort === "string") {
-        const allowedSortFields = [
-          "pricePerNight",
-          "-pricePerNight",
-          "createdAt",
-          "-createdAt",
-        ];
-        if (allowedSortFields.includes(req.query.sort)) {
-          sortBy = req.query.sort;
-        }
-      }
-
-      // جلب البيانات مع عمل الـ Populate
-      const properties = await Property.find(filterObj)
-        .populate("hostId", "name email")
-        .sort(sortBy);
-
-      return res.status(200).json({
-        success: true,
-        count: properties.length,
-        message:
-          "Properties retrieved successfully based on your criteria 🔍🏡",
-        data: properties,
-      });
-    } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: "Internal Server Error during fetching properties",
-        error: error.message,
-      });
     }
+
+    if (safeQuery.lng && safeQuery.lat) {
+      const longitude = Number(safeQuery.lng);
+      const latitude = Number(safeQuery.lat);
+
+      const maxDistanceInMeters = (Number(safeQuery.distance) || 10) * 1000;
+
+      if (!isNaN(longitude) && !isNaN(latitude)) {
+        filterObj["location.coordinates"] = {
+          $near: {
+            $geometry: {
+              type: "Point",
+              coordinates: [longitude, latitude],
+            },
+            $maxDistance: maxDistanceInMeters,
+          },
+        };
+      }
+    } else if (safeQuery.location && typeof safeQuery.location === "string") {
+      const sanitizedLocation = safeQuery.location.replace(
+        /[-\/\\^$*+?.()|[\]{}]/g,
+        "\\$&",
+      );
+      filterObj["location.address"] = new RegExp(sanitizedLocation, "i");
+    }
+
+    if (safeQuery.title && typeof safeQuery.title === "string") {
+      const sanitizedTitle = safeQuery.title.replace(
+        /[-\/\\^$*+?.()|[\]{}]/g,
+        "\\$&",
+      );
+      filterObj.title = new RegExp(sanitizedTitle, "i");
+    }
+
+    if (safeQuery.minPrice || safeQuery.maxPrice) {
+      filterObj.pricePerNight = {};
+      if (safeQuery.minPrice) {
+        const min = Number(safeQuery.minPrice);
+        if (!isNaN(min) && min >= 0) filterObj.pricePerNight.$gte = min;
+      }
+      if (safeQuery.maxPrice) {
+        const max = Number(safeQuery.maxPrice);
+        if (!isNaN(max) && max > 0) filterObj.pricePerNight.$lte = max;
+      }
+      if (Object.keys(filterObj.pricePerNight).length === 0) {
+        delete filterObj.pricePerNight;
+      }
+    }
+
+    if (safeQuery.maxGuests) {
+      const guests = Number(safeQuery.maxGuests);
+      if (!isNaN(guests) && guests > 0) {
+        filterObj.maxGuests = { $gte: guests };
+      }
+    }
+
+    if (safeQuery.amenities && typeof safeQuery.amenities === "string") {
+      const amenitiesArray = safeQuery.amenities
+        .split(",")
+        .map((item) => item.trim());
+      filterObj.amenities = { $all: amenitiesArray };
+    }
+
+    let sortBy = "-createdAt";
+    if (req.query.sort && typeof req.query.sort === "string") {
+      const allowedSortFields = [
+        "pricePerNight",
+        "-pricePerNight",
+        "createdAt",
+        "-createdAt",
+      ];
+      if (allowedSortFields.includes(req.query.sort)) {
+        sortBy = req.query.sort;
+      }
+    }
+
+    const properties = await Property.find(filterObj)
+      .populate("hostId", "name email")
+      .sort(sortBy);
+
+    return res.status(200).json({
+      success: true,
+      count: properties.length,
+      message: "Properties retrieved successfully based on your criteria 🔍🏡",
+      data: properties,
+    });
   };
   getPropertyById = async (req, res) => {
     const { id } = req.params;
@@ -273,7 +244,7 @@ class propertyController {
 
     return res.status(200).json({
       success: true,
-      message: "Property details retrieved 🔑",
+      message: "Property details retrieved ",
       data: property,
     });
   };
@@ -298,12 +269,10 @@ class propertyController {
       });
     }
 
-    // 🛑 جدار الحماية: حظر حقن أو تعديل الحقول الحساسة مثل (hostId أو isDeleted) عبر الـ body بالخطأ
     const updates = req.body;
     delete updates.hostId;
     delete updates.isDeleted;
 
-    // تطهير الأسعار إن وجدت في التحديث
     if (
       updates.pricePerNight &&
       (isNaN(Number(updates.pricePerNight)) ||
@@ -320,7 +289,7 @@ class propertyController {
       { $set: updates },
       {
         new: true,
-        runValidators: true, // تفعيل محقق المونغوس أثناء التعديل
+        runValidators: true,
       },
     );
 
@@ -332,16 +301,14 @@ class propertyController {
   };
   deleteProperty = async (req, res) => {
     const { id } = req.params;
-    const currentUserId = req._user.id; // التعديل المتوافق مع الـ AuthController الخاص بكم
+    const currentUserId = req._user.id;
 
-    // 1. التحقق من سلامة الـ ID الممرر
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res
         .status(400)
         .json({ success: false, message: "Invalid Property ID format." });
     }
 
-    // 2. البحث عن العقار والتأكد من وجوده وأنه غير محذوف مسبقاً
     const property = await Property.findOne({ _id: id, isDeleted: false });
     if (!property) {
       return res.status(404).json({
@@ -350,7 +317,6 @@ class propertyController {
       });
     }
 
-    // 3. جدار الحماية: التأكد أن الحاذف هو المالك الفعلي للعقار
     if (property.hostId.toString() !== currentUserId) {
       return res.status(403).json({
         success: false,
@@ -358,16 +324,14 @@ class propertyController {
       });
     }
 
-    // 🛑 4. الشرط الذكي: التحقق من وجود حجوزات نشطة (حالية) أو مستقبلية لم تنتهِ بعد
     const today = new Date();
 
     const activeOrFutureBooking = await Booking.findOne({
       propertyId: id,
-      status: { $nin: ["cancelled", "rejected"] }, // استبعاد الحجوزات الملغية أو المرفوضة
-      endDate: { $gte: today }, // تاريخ الانتهاء أكبر من أو يساوي اليوم (يعني الحجز شغال حالياً أو لسا حيبدأ بالمستقبل)
+      status: { $nin: ["cancelled", "rejected"] },
+      endDate: { $gte: today },
     });
 
-    // إذا وجدنا أي حجز ينطبق عليه الشرط، نمنع الحذف فوراً
     if (activeOrFutureBooking) {
       return res.status(400).json({
         success: false,
@@ -376,7 +340,6 @@ class propertyController {
       });
     }
 
-    // 5. إذا كان العقار خالياً من الحجوزات المستقبلية، نفذ الـ Soft Delete باحترافية
     property.isDeleted = true;
     property.status = "unavailable";
     await property.save();
