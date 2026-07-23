@@ -153,196 +153,182 @@ class BookingController {
     });
   };
 
+  // ──────────────────────────────────────────────
+  // GET /api/v1/bookings
+  // Get bookings according to the logged-in user's role
+  //
+  // Guest → bookings created by this guest
+  // Host  → bookings received by this host
+  // Admin → all bookings
+  //
+  // Supported filters:
+  // status, paymentStatus, type, sort
+  // ──────────────────────────────────────────────
+  getBookings = async (req, res) => {
+    // Get logged-in user information from the authentication middleware
+    const loggedInUserId = req._user.id;
+    const loggedInUserRole = req._user.role;
 
-// ──────────────────────────────────────────────
-// GET /api/v1/bookings
-// Get bookings according to the logged-in user's role
-//
-// Guest → bookings created by this guest
-// Host  → bookings received by this host
-// Admin → all bookings
-//
-// Supported filters:
-// status, paymentStatus, type, sort
-// ──────────────────────────────────────────────
-getBookings = async (req, res) => {
-  // Get logged-in user information from the authentication middleware
-  const loggedInUserId = req._user.id;
-  const loggedInUserRole = req._user.role;
+    // Read filters from the URL query parameters
+    const { status, paymentStatus, type, sort = "newest" } = req.query;
 
-  // Read filters from the URL query parameters
-  const {
-    status,
-    paymentStatus,
-    type,
-    sort = "newest",
-  } = req.query;
+    // This object will gradually contain all MongoDB search conditions
+    const query = {
+      isDeleted: false,
+    };
 
-  // This object will gradually contain all MongoDB search conditions
-  const query = {
-    isDeleted: false,
-  };
+    // ─── 1. Restrict results according to the user's role ──────────
 
-  // ─── 1. Restrict results according to the user's role ──────────
+    // A guest can see only bookings that they created
+    if (loggedInUserRole === "guest") {
+      query.guestId = loggedInUserId;
+    }
 
-  // A guest can see only bookings that they created
-  if (loggedInUserRole === "guest") {
-    query.guestId = loggedInUserId;
-  }
+    // A host can see only bookings received on their properties
+    if (loggedInUserRole === "host") {
+      query.hostId = loggedInUserId;
+    }
 
-  // A host can see only bookings received on their properties
-  if (loggedInUserRole === "host") {
-    query.hostId = loggedInUserId;
-  }
+    // An admin does not receive a guestId or hostId restriction,
+    // so the admin can see all non-deleted bookings
+    if (!["guest", "host", "admin"].includes(loggedInUserRole)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to view bookings.",
+      });
+    }
 
-  // An admin does not receive a guestId or hostId restriction,
-  // so the admin can see all non-deleted bookings
-  if (
-    !["guest", "host", "admin"].includes(loggedInUserRole)
-  ) {
-    return res.status(403).json({
-      success: false,
-      message: "You are not allowed to view bookings.",
+    // ─── 2. Filter by booking status ───────────────────────────────
+
+    const allowedStatuses = [
+      "pending",
+      "confirmed",
+      "rejected",
+      "expired",
+      "cancelled",
+      "completed",
+    ];
+
+    if (status !== undefined) {
+      if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}.`,
+        });
+      }
+
+      query.status = status;
+    }
+
+    // ─── 3. Filter by payment status ───────────────────────────────
+
+    const allowedPaymentStatuses = ["pending", "paid", "failed", "refunded"];
+
+    if (paymentStatus !== undefined) {
+      if (!allowedPaymentStatuses.includes(paymentStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid paymentStatus. Allowed values: ${allowedPaymentStatuses.join(", ")}.`,
+        });
+      }
+
+      query.paymentStatus = paymentStatus;
+    }
+
+    // ─── 4. Filter by booking period ───────────────────────────────
+
+    const allowedTypes = ["upcoming", "ongoing", "past"];
+
+    if (type !== undefined) {
+      if (!allowedTypes.includes(type)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid type. Allowed values: ${allowedTypes.join(", ")}.`,
+        });
+      }
+
+      // Normalize today so the comparison is based on calendar dates
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // The stay has not started yet
+      if (type === "upcoming") {
+        query.startDate = {
+          $gt: today,
+        };
+      }
+
+      // The stay has started but has not ended yet
+      if (type === "ongoing") {
+        query.startDate = {
+          $lte: today,
+        };
+
+        query.endDate = {
+          $gt: today,
+        };
+      }
+
+      // The stay has already ended
+      if (type === "past") {
+        query.endDate = {
+          $lte: today,
+        };
+      }
+    }
+
+    // ─── 5. Build the sorting rule ─────────────────────────────────
+
+    const sortOptions = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+
+      checkInSoonest: { startDate: 1 },
+      checkInLatest: { startDate: -1 },
+
+      priceHigh: { "pricingSnapshot.totalPrice": -1 },
+      priceLow: { "pricingSnapshot.totalPrice": 1 },
+    };
+
+    if (!sortOptions[sort]) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid sort value. Allowed values: ${Object.keys(
+          sortOptions,
+        ).join(", ")}.`,
+      });
+    }
+
+    // ─── 6. Execute the database query ─────────────────────────────
+
+    const bookings = await Booking.find(query)
+      .populate("propertyId", "title location images")
+      .populate("guestId", "name email")
+      .populate("hostId", "name email")
+      .sort(sortOptions[sort]);
+
+    // ─── 7. Return the result ──────────────────────────────────────
+
+    return res.status(200).json({
+      success: true,
+      count: bookings.length,
+
+      filters: {
+        status: status || null,
+        paymentStatus: paymentStatus || null,
+        type: type || null,
+        sort,
+      },
+
+      data: bookings,
     });
-  }
-
-  // ─── 2. Filter by booking status ───────────────────────────────
-
-  const allowedStatuses = [
-    "pending",
-    "confirmed",
-    "rejected",
-    "expired",
-    "cancelled",
-    "completed",
-  ];
-
-  if (status !== undefined) {
-    if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}.`,
-      });
-    }
-
-    query.status = status;
-  }
-
-  // ─── 3. Filter by payment status ───────────────────────────────
-
-  const allowedPaymentStatuses = [
-    "pending",
-    "paid",
-    "failed",
-    "refunded",
-  ];
-
-  if (paymentStatus !== undefined) {
-    if (!allowedPaymentStatuses.includes(paymentStatus)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid paymentStatus. Allowed values: ${allowedPaymentStatuses.join(", ")}.`,
-      });
-    }
-
-    query.paymentStatus = paymentStatus;
-  }
-
-  // ─── 4. Filter by booking period ───────────────────────────────
-
-  const allowedTypes = ["upcoming", "ongoing", "past"];
-
-  if (type !== undefined) {
-    if (!allowedTypes.includes(type)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid type. Allowed values: ${allowedTypes.join(", ")}.`,
-      });
-    }
-
-    // Normalize today so the comparison is based on calendar dates
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // The stay has not started yet
-    if (type === "upcoming") {
-      query.startDate = {
-        $gt: today,
-      };
-    }
-
-    // The stay has started but has not ended yet
-    if (type === "ongoing") {
-      query.startDate = {
-        $lte: today,
-      };
-
-      query.endDate = {
-        $gt: today,
-      };
-    }
-
-    // The stay has already ended
-    if (type === "past") {
-      query.endDate = {
-        $lte: today,
-      };
-    }
-  }
-
-  // ─── 5. Build the sorting rule ─────────────────────────────────
-
-  const sortOptions = {
-    newest: { createdAt: -1 },
-    oldest: { createdAt: 1 },
-
-    checkInSoonest: { startDate: 1 },
-    checkInLatest: { startDate: -1 },
-
-    priceHigh: { "pricingSnapshot.totalPrice": -1 },
-    priceLow: { "pricingSnapshot.totalPrice": 1 },
   };
-
-  if (!sortOptions[sort]) {
-    return res.status(400).json({
-      success: false,
-      message: `Invalid sort value. Allowed values: ${Object.keys(
-        sortOptions,
-      ).join(", ")}.`,
-    });
-  }
-
-  // ─── 6. Execute the database query ─────────────────────────────
-
-  const bookings = await Booking.find(query)
-    .populate("propertyId", "title location images")
-    .populate("guestId", "name email")
-    .populate("hostId", "name email")
-    .sort(sortOptions[sort]);
-
-  // ─── 7. Return the result ──────────────────────────────────────
-
-  return res.status(200).json({
-    success: true,
-    count: bookings.length,
-
-    filters: {
-      status: status || null,
-      paymentStatus: paymentStatus || null,
-      type: type || null,
-      sort,
-    },
-
-    data: bookings,
-  });
-};
-
 
   getHostEarnings = async (req, res) => {
     const hostId = req._user.id;
     const platformCommission = 0.1;
 
-    const earnings = await Booking.aggregate([
+    const result = await Booking.aggregate([
       {
         $match: {
           hostId: new mongoose.Types.ObjectId(hostId),
@@ -350,38 +336,86 @@ getBookings = async (req, res) => {
         },
       },
       {
-        $group: {
-          _id: null,
-          totalGrossEarnings: { $sum: "$totalPrice" },
-          totalBookings: { $sum: 1 },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          totalBookings: 1,
-          totalGrossEarnings: 1,
-          platformFees: {
-            $multiply: ["$totalGrossEarnings", platformCommission],
-          },
-          netEarnings: {
-            $subtract: [
-              "$totalGrossEarnings",
-              { $multiply: ["$totalGrossEarnings", platformCommission] },
-            ],
-          },
+        $facet: {
+          // 1. الملخص الإجمالي (KPIs)
+          overallSummary: [
+            {
+              $group: {
+                _id: null,
+                totalGrossEarnings: { $sum: "$totalPrice" },
+                totalBookings: { $sum: 1 },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                totalBookings: 1,
+                totalGrossEarnings: 1,
+                platformFees: {
+                  $multiply: ["$totalGrossEarnings", platformCommission],
+                },
+                netEarnings: {
+                  $subtract: [
+                    "$totalGrossEarnings",
+                    { $multiply: ["$totalGrossEarnings", platformCommission] },
+                  ],
+                },
+              },
+            },
+          ],
+
+          // 2. التقرير الشهري المبسط (Monthly Breakdown)
+          monthlyReport: [
+            {
+              $group: {
+                _id: {
+                  year: { $year: "$createdAt" },
+                  month: { $month: "$createdAt" },
+                },
+                monthlyGross: { $sum: "$totalPrice" },
+                bookingsCount: { $sum: 1 },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                year: "$_id.year",
+                month: "$_id.month",
+                bookingsCount: 1,
+                monthlyGross: 1,
+                monthlyPlatformFees: {
+                  $multiply: ["$monthlyGross", platformCommission],
+                },
+                monthlyNet: {
+                  $subtract: [
+                    "$monthlyGross",
+                    { $multiply: ["$monthlyGross", platformCommission] },
+                  ],
+                },
+              },
+            },
+            { $sort: { year: -1, month: -1 } },
+          ],
         },
       },
     ]);
 
-    res.status(200).json(
-      earnings[0] || {
-        totalBookings: 0,
-        totalGrossEarnings: 0,
-        platformFees: 0,
-        netEarnings: 0,
+    const summary = result[0].overallSummary[0] || {
+      totalBookings: 0,
+      totalGrossEarnings: 0,
+      platformFees: 0,
+      netEarnings: 0,
+    };
+
+    const monthlyBreakdown = result[0].monthlyReport || [];
+
+    res.status(200).json({
+      success: true,
+      data: {
+        summary,
+        monthlyBreakdown,
       },
-    );
+    });
   };
 
   // ──────────────────────────────────────────────
