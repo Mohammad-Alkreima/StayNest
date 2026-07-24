@@ -10,12 +10,12 @@ const xssSanitize = require("./middlewares/xss");
 const { default: mongoose } = require("mongoose");
 const updateVisibleReviews = require("./cron/reviewCron");
 
-// run Cron Job
-updateVisibleReviews();
 
 const startBookingCompletionJob = require("./jobs/bookingCompletion.job");
 
 const startBookingExpirationJob = require("./jobs/bookingExpiration.job");
+
+const startPaymentReleaseJob = require("./jobs/paymentRelease.job");
 
 // middlewares
 app.use(limiter);
@@ -32,8 +32,11 @@ app.use("/api/v1/properties", require("./routes/property.route"));
 app.use("/api/v1/bookings", require("./routes/booking.route"));
 app.use("/api/v1/reviews", require("./routes/review.route"));
 app.use("/api/v1/disputes", require("./routes/dispute.route"));
-app.use(errorHandler);
+// Handle requests that do not match any existing route
 app.use(notFound);
+// Global error-handling middleware must be registered last
+app.use(errorHandler);
+
 
 // listen
 const PORT = process.env.PORT;
@@ -41,8 +44,11 @@ const MONGODB_URL = process.env.MONGODB_URL;
 mongoose
   .connect(MONGODB_URL)
   .then(() => {
+    // Start scheduled jobs only after MongoDB is connected
+    updateVisibleReviews();
     startBookingCompletionJob();
     startBookingExpirationJob();
+    startPaymentReleaseJob();
 
     app.listen(PORT, () => {
       console.log("Connected to MongoDB");

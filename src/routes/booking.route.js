@@ -10,7 +10,10 @@ const {
   updateBookingValidation,
   cancelBookingValidation,
   bookingIdValidation,
+  getBookingsValidation,
 } = require("../validators/bookingValidation");
+
+
 
 // POST /api/v1/bookings
 router.post(
@@ -19,6 +22,23 @@ router.post(
   asyncHandler(bookingController.createBooking),
 );
 
+// GET /api/v1/bookings
+// Guest: returns bookings created by the guest
+// Host: returns bookings received on the host's properties
+// Admin: returns all bookings
+router.get(
+  "/",
+  [
+    auth,
+    roleMiddleware(["guest", "host", "admin"]),
+    ...getBookingsValidation,
+  ],
+  asyncHandler(bookingController.getBookings),
+);
+
+
+
+/*
 // GET /api/v1/bookings/my-bookings
 router.get(
   "/my-bookings",
@@ -32,11 +52,20 @@ router.get(
   [auth, roleMiddleware(["guest", "admin"])],
   asyncHandler(bookingController.getMyBookings),
 );
+*/
+
+// src/routes/booking.route.js
+router.get(
+  "/host/earnings",
+  auth,
+  roleMiddleware(["host"]),
+  asyncHandler(bookingController.getHostEarnings),
+);
 
 // GET /api/v1/bookings/:id
 router.get(
   "/:id",
-  [auth, ...bookingIdValidation, roleMiddleware(["guest", "admin"])],
+  [auth, ...bookingIdValidation, roleMiddleware(["guest", "host", "admin"])],
   asyncHandler(bookingController.getBookingById),
 );
 
@@ -47,19 +76,34 @@ router.patch(
   asyncHandler(bookingController.cancelBooking),
 );
 
-// في ملف src/routes/booking.route.js
-router.get(
-  "/host/earnings",
-  auth,
-  roleMiddleware(["host"]),
-  bookingController.getHostEarnings,
-);
+
 // PATCH /api/v1/bookings/:id/confirm
 router.patch(
   "/:id/confirm",
   [auth, ...bookingIdValidation, roleMiddleware(["host", "admin"])],
   asyncHandler(bookingController.confirmBooking),
 );
+
+// PATCH /api/v1/bookings/:id/pay
+// Pay for a confirmed booking — Guest owner only
+router.patch(
+  "/:id/pay",
+  [
+    auth,
+    roleMiddleware(["guest"]),
+    ...bookingIdValidation,
+  ],
+  asyncHandler(bookingController.payBooking),
+);
+
+// PATCH /api/v1/bookings/:id/complete
+// Complete a finished stay — Property Host or Admin
+router.patch(
+  "/:id/complete",
+  [auth, roleMiddleware(["host", "admin"]), ...bookingIdValidation],
+  asyncHandler(bookingController.completeBooking),
+);
+
 
 // PATCH /api/v1/bookings/:id/reject
 router.patch(

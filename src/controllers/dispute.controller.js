@@ -2,6 +2,9 @@ const Dispute = require("../models/Dispute");
 const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 const User = require("../models/User");
+const {
+  applyDisputeResolution,
+} = require("../services/payment.service");
 
 class DisputeController {
   getAllDisputes = async (req, res) => {
@@ -171,15 +174,27 @@ class DisputeController {
         .json({ success: false, message: "النزاع غير موجود" });
     }
 
+    // Prevent resolving the same dispute and executing its payment twice.
+    if (dispute.status === "resolved") {
+      return res.status(400).json({
+        success: false,
+        message: "تم حل هذا النزاع مسبقاً",
+      });
+    }
+
     // 2. تحديث بيانات النزاع بقرار الآدمن والتسوية
     dispute.status = status; // resolved, rejected, in-progress, etc.
     dispute.winner = winner || null;
     dispute.resolutionType = resolutionType || null;
-    dispute.refundPercentage = refundPercentage || null;
-    dispute.refundAmount = refundAmount || null;
+    dispute.refundPercentage = refundPercentage ?? null;
+    dispute.refundAmount = refundAmount ?? null;
     if (adminNotes) dispute.adminNotes = adminNotes;
 
     await dispute.save();
+    // Execute the financial result only after the dispute is resolved.
+    if (dispute.status === "resolved") {
+      await applyDisputeResolution(dispute);
+    }
 
     // 3. الرد بنجاح العملية دون أي قيود أو حظر تلقائي
     res.status(200).json({
