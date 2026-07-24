@@ -1,6 +1,8 @@
 const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 const User = require("../models/User");
+const mongoose = require("mongoose");
+const asyncHandler = require("../middlewares/asyncHandler");
 
 const LOYALTY_LEVELS = require("../constants/loyaltyLevels");
 
@@ -11,9 +13,9 @@ class BookingController {
     );
   };
 
-  createBooking = async (req, res) => {
+  createBooking = asyncHandler(async (req, res) => {
     const guestId = req._user.id;
-    const { propertyId, startDate, endDate, paymentMethod } = req.body;
+    const { propertyId, startDate, endDate } = req.body;
 
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -102,6 +104,19 @@ class BookingController {
       (property.cleaningFee || 0) +
       (property.serviceFee || 0);
 
+      // Calculate the platform commission and host earning
+      // at the time the booking is created.
+      // These values are stored as a financial snapshot.
+      const PLATFORM_COMMISSION_RATE = 0.1;
+
+      const platformCommission = Number(
+        (totalPrice * PLATFORM_COMMISSION_RATE).toFixed(2),
+      );
+
+      const hostEarning = Number(
+        (totalPrice - platformCommission).toFixed(2),
+      );
+
     // Create booking
     const booking = await Booking.create({
       propertyId,
@@ -125,7 +140,11 @@ class BookingController {
 
         totalPrice,
       },
-      paymentMethod: paymentMethod || "bankTransfer",
+      payment: {
+        status: "unpaid",
+        platformCommission,
+        hostEarning,
+      },
     });
 
     return res.status(201).json({
@@ -222,19 +241,9 @@ class BookingController {
 
     // ─── 3. Filter by payment status ───────────────────────────────
 
-    const allowedPaymentStatuses = ["pending", "paid", "failed", "refunded"];
-
     if (paymentStatus !== undefined) {
-      if (!allowedPaymentStatuses.includes(paymentStatus)) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid paymentStatus. Allowed values: ${allowedPaymentStatuses.join(", ")}.`,
-        });
-      }
-
-      query.paymentStatus = paymentStatus;
+      query["payment.status"] = paymentStatus;
     }
-
     // ─── 4. Filter by booking period ───────────────────────────────
 
     const allowedTypes = ["upcoming", "ongoing", "past"];
@@ -324,47 +333,65 @@ class BookingController {
     });
   };
 
+
+// ──────────────────────────────────────────────
+// Get earnings summary and monthly report
+// Returns overall earnings statistics and monthly breakdown for the logged-in host
+// ──────────────────────────────────────────────
+
   getHostEarnings = async (req, res) => {
     const hostId = req._user.id;
-    const platformCommission = 0.1;
+    
 
     const result = await Booking.aggregate([
       {
         $match: {
           hostId: new mongoose.Types.ObjectId(hostId),
           status: "completed",
+           isDeleted: false,
         },
       },
       {
         $facet: {
-          // 1. الملخص الإجمالي (KPIs)
+          // Overall earnings summary (KPIs)
           overallSummary: [
-            {
+           {
               $group: {
                 _id: null,
-                totalGrossEarnings: { $sum: "$totalPrice" },
-                totalBookings: { $sum: 1 },
+
+                totalBookings: {
+                  $sum: 1,
+                },
+
+                totalRevenue: {
+                  $sum: "$pricingSnapshot.totalPrice",
+                },
+
+                totalPlatformCommission: {
+                  $sum: "$payment.platformCommission",
+                },
+
+                totalHostEarnings: {
+                  $sum: "$payment.hostEarning",
+                },
               },
             },
             {
-              $project: {
-                _id: 0,
-                totalBookings: 1,
-                totalGrossEarnings: 1,
-                platformFees: {
-                  $multiply: ["$totalGrossEarnings", platformCommission],
-                },
-                netEarnings: {
-                  $subtract: [
-                    "$totalGrossEarnings",
-                    { $multiply: ["$totalGrossEarnings", platformCommission] },
-                  ],
-                },
-              },
+            $project: {
+              _id: 0,
+
+              totalBookings: 1,
+
+              totalRevenue: 1,
+
+              totalPlatformCommission: 1,
+
+              totalHostEarnings: 1,
             },
+          },
           ],
 
-          // 2. التقرير الشهري المبسط (Monthly Breakdown)
+          // Monthly earnings breakdown
           monthlyReport: [
             {
               $group: {
@@ -372,39 +399,56 @@ class BookingController {
                   year: { $year: "$createdAt" },
                   month: { $month: "$createdAt" },
                 },
-                monthlyGross: { $sum: "$totalPrice" },
-                bookingsCount: { $sum: 1 },
+
+                bookingsCount: {
+                  $sum: 1,
+                },
+
+                monthlyRevenue: {
+                  $sum: "$pricingSnapshot.totalPrice",
+                },
+
+                monthlyPlatformCommission: {
+                  $sum: "$payment.platformCommission",
+                },
+
+                monthlyHostEarnings: {
+                  $sum: "$payment.hostEarning",
+                },
               },
             },
             {
               $project: {
                 _id: 0,
+
                 year: "$_id.year",
                 month: "$_id.month",
+
                 bookingsCount: 1,
-                monthlyGross: 1,
-                monthlyPlatformFees: {
-                  $multiply: ["$monthlyGross", platformCommission],
-                },
-                monthlyNet: {
-                  $subtract: [
-                    "$monthlyGross",
-                    { $multiply: ["$monthlyGross", platformCommission] },
-                  ],
-                },
+
+                monthlyRevenue: 1,
+
+                monthlyPlatformCommission: 1,
+
+                monthlyHostEarnings: 1,
               },
             },
-            { $sort: { year: -1, month: -1 } },
+            {
+              $sort: {
+                year: -1,
+                month: -1,
+              },
+            },
           ],
-        },
+                  },
       },
     ]);
 
-    const summary = result[0].overallSummary[0] || {
+   const summary = result[0].overallSummary[0] || {
       totalBookings: 0,
-      totalGrossEarnings: 0,
-      platformFees: 0,
-      netEarnings: 0,
+      totalRevenue: 0,
+      totalPlatformCommission: 0,
+      totalHostEarnings: 0,
     };
 
     const monthlyBreakdown = result[0].monthlyReport || [];
@@ -429,7 +473,7 @@ class BookingController {
       const loggedInUserId = req._user.id;
 
       // Read only the fields that are allowed to be updated
-      const { startDate, endDate, paymentMethod } = req.body;
+      const { startDate, endDate } = req.body;
 
       // ─── 1. Get the booking ───────────────────────────────────────────────
       // Find the booking only if it has not been soft-deleted
@@ -618,6 +662,17 @@ class BookingController {
           pricingSnapshot.cleaningFee +
           pricingSnapshot.serviceFee;
 
+          // Recalculate the platform commission and host earning
+          const PLATFORM_COMMISSION_RATE = 0.1;
+
+          const platformCommission = Number(
+            (totalPrice * PLATFORM_COMMISSION_RATE).toFixed(2),
+          );
+
+          const hostEarning = Number(
+            (totalPrice - platformCommission).toFixed(2),
+          );
+
         // Update booking dates
         booking.startDate = finalStartDate;
         booking.endDate = finalEndDate;
@@ -627,13 +682,9 @@ class BookingController {
         booking.pricingSnapshot.subtotal = subtotal;
         booking.pricingSnapshot.discountAmount = discountAmount;
         booking.pricingSnapshot.totalPrice = totalPrice;
+        booking.payment.platformCommission = platformCommission;
+        booking.payment.hostEarning = hostEarning;
       } // End of hasDateUpdate
-
-      // ─── 11. Update payment method ────────────────────────────────────────
-      // Update the payment method only when it is provided in the request
-      if (paymentMethod !== undefined) {
-        booking.paymentMethod = paymentMethod;
-      }
 
       // ─── 12. Save the updated booking ─────────────────────────────────────
       // Save the booking only after all validations and calculations succeed
@@ -752,7 +803,7 @@ class BookingController {
       let refundPercentage = 0;
       let refundAmount = 0;
 
-      if (booking.paymentStatus === "paid") {
+      if (booking.payment?.status === "held") {
         // Determine the refund percentage based on how early
         // the booking was cancelled before check-in
         if (daysBeforeStart >= 7) {
@@ -781,19 +832,28 @@ class BookingController {
         );
       }
 
-      // ─── 7. Update cancellation information ─────────────────────
+     // ─── 7. Update cancellation information ─────────────────────
       // Mark the booking as cancelled and store the cancellation details
       booking.status = "cancelled";
       booking.cancelledAt = now;
       booking.cancelledBy = loggedInUserId;
       booking.cancelledByRole = loggedInUserRole;
       booking.cancellationReason = cancellationReason?.trim() || null;
-      booking.refund = {
-        refundPercentage,
-        refundAmount,
-        refundStatus: refundAmount > 0 ? "pending" : "notRequired",
-        refundedAt: null,
-      };
+
+      // Update payment information only if the guest's payment is currently held
+      if (booking.payment?.status === "held") {
+        booking.payment.refundPercentage = refundPercentage;
+        booking.payment.refundAmount = refundAmount;
+        booking.payment.refundedAt = refundAmount > 0 ? now : null;
+
+        if (refundPercentage === 100) {
+          booking.payment.status = "refunded";
+        } else if (refundPercentage > 0) {
+          booking.payment.status = "partially_refunded";
+        }
+
+        // When refundPercentage is 0, keep payment status as "held"
+      }
 
       // ─── 8. Save the updated booking ─────────────────────────────
       // Save all cancellation changes to the database
