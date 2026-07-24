@@ -5,6 +5,7 @@ const auth = require("../middlewares/auth");
 const roleMiddleware = require("../middlewares/role");
 const asyncHandler = require("../utils/asyncHandler");
 const idMiddleware = require("../middlewares/id");
+const page = require("../middlewares/page");
 const {
   createDisputeValidation,
   updateDisputeValidation,
@@ -28,7 +29,6 @@ router.patch(
   asyncHandler(disputeController.updateDispute),
 );
 
-
 router.get(
   "/filter",
   auth,
@@ -38,23 +38,20 @@ router.get(
 );
 
 router.get(
-  "/:id",
-  auth,
-router.get(
   "/:disputeId"
   ,auth,
   idMiddleware,
+  roleMiddleware("admin"),
   asyncHandler(disputeController.getDisputeById),
 );
-
 
 router.get(
   "/",
   auth,
   roleMiddleware("admin"),
+  page,
   asyncHandler(disputeController.getAllDisputes)
 );
-
 
 router.patch(
   "/:id/resolve",
@@ -63,9 +60,5 @@ router.patch(
   resolveDisputeValidation,
   asyncHandler(disputeController.resolveDispute),
 );
-
-
-
-
 
 module.exports = router;

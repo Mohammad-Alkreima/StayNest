@@ -4,8 +4,6 @@ const Property = require("../models/Property");
 const User = require("../models/User");
 
 class DisputeController {
-
-
   getAllDisputes = async (req, res) => {
     const limit = req._limit;
     const page = req._page;
@@ -28,6 +26,23 @@ class DisputeController {
     });
   }
 
+  getDisputeById = async (req, res) => {
+    const { disputeId } = req.params;
+
+    const dispute = await Dispute.findById(disputeId);
+
+    if (!dispute) {
+      return res
+        .status(404)
+        .json({ success: false, message: "The dispute does not exsist" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Get disput by id successfully",
+      data: dispute,
+    });
+  };
 
   createDispute = async (req, res) => {
     console.log("USER FROM REQ:", req._user);
@@ -94,6 +109,7 @@ class DisputeController {
       data: newDispute,
     });
   };
+
   updateDispute = async (req, res) => {
     const { id } = req.params;
     const { reason } = req.body;
@@ -174,7 +190,6 @@ class DisputeController {
   };
 
   filterDisputes = async (req, res) => {
-
     const limit = req._limit;
     const page = req._page;
     const skip = (page - 1) * limit;
@@ -193,7 +208,6 @@ class DisputeController {
         });
     }
 
-
     let bookingFilter = {};
 
     if (type === "host") {
@@ -208,7 +222,6 @@ class DisputeController {
 
     const bookingIds = bookings.map((booking) => booking._id);
 
-
     let disputeFilter = {
         bookingId: {
             $in: bookingIds
@@ -219,12 +232,10 @@ class DisputeController {
         disputeFilter.status = status;
     }
 
-
     const totalDisputes =
         await Dispute.countDocuments(disputeFilter);
 
     const pages = Math.ceil(totalDisputes / limit);
-
 
     const disputes = await Dispute.find(disputeFilter)
         .populate("bookingId")
@@ -233,45 +244,14 @@ class DisputeController {
         .skip(skip)
         .limit(limit);
 
-
     return res.status(200).json({
-
         message: "Filtered Disputes",
-
         disputes,
-
         totalDisputes,
-
         page,
-
         pages
-
-    });
-
-};
-
-}
-
-
-
-
-module.exports = new DisputeController();
-  getDisputeById = async (req, res) => {
-    const { disputeId } = req.params;
-
-    const dispute = await Dispute.findById(disputeId);
-
-    if (!dispute) {
-      return res
-        .status(404)
-        .json({ success: false, message: "النزاع غير موجود" });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "تم جلب بيانات النزاع بنجاح",
-      data: dispute,
     });
   };
+
 }
 module.exports = new DisputeController();
