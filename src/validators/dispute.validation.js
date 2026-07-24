@@ -1,4 +1,4 @@
-const { body, param } = require("express-validator");
+const { body, param, query } = require("express-validator");
 const validate = require("../middlewares/validate");
 
 const createDisputeValidation = [
@@ -109,8 +109,32 @@ const resolveDisputeValidation = [
   validate,
 ];
 
+
+const filterDisputesValidation = [
+  query("name")
+    .optional({ checkFalsy: true })
+    .isString()
+    .withMessage("Name must be a string")
+    .trim(),
+
+  query("type")
+    .optional({ checkFalsy: true })
+    .isIn(["host", "guest"])
+    .withMessage("Type must be either host or guest"),
+
+  query("status")
+    .optional({ checkFalsy: true })
+    .isIn(["open", "in-progress", "resolved"])
+    .withMessage(
+      "Status must be open, in-progress or resolved",
+    ),
+
+  validate,
+];
+
 module.exports = {
   createDisputeValidation,
   updateDisputeValidation,
   resolveDisputeValidation,
+  filterDisputesValidation
 };

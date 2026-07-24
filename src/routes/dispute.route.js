@@ -5,10 +5,12 @@ const auth = require("../middlewares/auth");
 const roleMiddleware = require("../middlewares/role");
 const asyncHandler = require("../utils/asyncHandler");
 const idMiddleware = require("../middlewares/id");
+const page = require("../middlewares/page");
 const {
   createDisputeValidation,
   updateDisputeValidation,
   resolveDisputeValidation,
+  filterDisputesValidation
 } = require("../validators/dispute.validation");
 
 router.post(
@@ -28,10 +30,27 @@ router.patch(
 );
 
 router.get(
+  "/filter",
+  auth,
+  roleMiddleware("admin"),
+  filterDisputesValidation,
+  asyncHandler(disputeController.filterDisputes)
+);
+
+router.get(
   "/:disputeId"
   ,auth,
   idMiddleware,
+  roleMiddleware("admin"),
   asyncHandler(disputeController.getDisputeById),
+);
+
+router.get(
+  "/",
+  auth,
+  roleMiddleware("admin"),
+  page,
+  asyncHandler(disputeController.getAllDisputes)
 );
 
 router.patch(
