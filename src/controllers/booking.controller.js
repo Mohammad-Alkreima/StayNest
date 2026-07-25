@@ -2,7 +2,7 @@ const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 const User = require("../models/User");
 const mongoose = require("mongoose");
-const asyncHandler = require("../middlewares/asyncHandler");
+
 
 const LOYALTY_LEVELS = require("../constants/loyaltyLevels");
 
@@ -13,7 +13,7 @@ class BookingController {
     );
   };
 
-  createBooking = asyncHandler(async (req, res) => {
+  createBooking = async (req, res) => {
     const guestId = req._user.id;
     const { propertyId, startDate, endDate } = req.body;
 
@@ -152,7 +152,7 @@ class BookingController {
       message: "Booking created successfully.",
       data: booking,
     });
-  };
+    };
 
   getHostBookings = async (req, res) => {
     const hostId = req._user.id;
@@ -349,6 +349,7 @@ class BookingController {
           hostId: new mongoose.Types.ObjectId(hostId),
           status: "completed",
            isDeleted: false,
+           "payment.status": "released"
         },
       },
       {
@@ -812,9 +813,9 @@ class BookingController {
           refundPercentage = 50;
         }
 
-        // Get the final amount that was agreed upon
-        // when the booking was created
-        const bookingTotalPrice = booking.pricingSnapshot?.totalPrice;
+        // Get the amount that the guest actually paid
+        // and is currently held by the platform
+        const bookingTotalPrice = booking.payment.amount;
 
         // Ensure the stored booking price is valid
         // before using it to calculate a refund
@@ -841,19 +842,61 @@ class BookingController {
       booking.cancellationReason = cancellationReason?.trim() || null;
 
       // Update payment information only if the guest's payment is currently held
-      if (booking.payment?.status === "held") {
-        booking.payment.refundPercentage = refundPercentage;
-        booking.payment.refundAmount = refundAmount;
-        booking.payment.refundedAt = refundAmount > 0 ? now : null;
+     if (booking.payment?.status === "held") {
+      const paidAmount = booking.payment.amount;
 
-        if (refundPercentage === 100) {
-          booking.payment.status = "refunded";
-        } else if (refundPercentage > 0) {
-          booking.payment.status = "partially_refunded";
-        }
-
-        // When refundPercentage is 0, keep payment status as "held"
+      if (!Number.isFinite(paidAmount) || paidAmount <= 0) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Held payment amount is missing or invalid. Cancellation cannot be completed.",
+        });
       }
+
+      booking.payment.refundPercentage = refundPercentage;
+      booking.payment.refundAmount = refundAmount;
+      booking.payment.refundedAt = refundAmount > 0 ? now : null;
+
+      // Full refund: all money returns to the guest.
+      if (refundPercentage === 100) {
+        booking.payment.status = "refunded";
+        booking.payment.platformCommission = 0;
+        booking.payment.hostEarning = 0;
+        booking.payment.releasedAt = null;
+      }
+
+      // Partial refund: part returns to the guest,
+      // and the remaining amount is released to the host.
+      else if (refundPercentage > 0) {
+        const remainingAmount = Number(
+          (paidAmount - refundAmount).toFixed(2),
+        );
+
+        const PLATFORM_COMMISSION_RATE = 0.1;
+
+        const platformCommission = Number(
+          (remainingAmount * PLATFORM_COMMISSION_RATE).toFixed(2),
+        );
+
+        const hostEarning = Number(
+          (remainingAmount - platformCommission).toFixed(2),
+        );
+
+        booking.payment.status = "partially_refunded";
+        booking.payment.platformCommission = platformCommission;
+        booking.payment.hostEarning = hostEarning;
+        booking.payment.releasedAt = now;
+      }
+
+      // No refund: all held money is released to the host.
+      else {
+        booking.payment.status = "released";
+        booking.payment.refundPercentage = 0;
+        booking.payment.refundAmount = 0;
+        booking.payment.refundedAt = null;
+        booking.payment.releasedAt = now;
+      }
+    }
 
       // ─── 8. Save the updated booking ─────────────────────────────
       // Save all cancellation changes to the database
@@ -875,6 +918,7 @@ class BookingController {
       });
     }
   };
+
 
   // ──────────────────────────────────────────────
   // PATCH /api/v1/bookings/:id/confirm
@@ -945,6 +989,184 @@ class BookingController {
       });
     }
   };
+
+
+
+    // ──────────────────────────────────────────────
+    // PATCH /api/v1/bookings/:id/pay
+    // Pay for a confirmed booking — Guest owner only
+    // ──────────────────────────────────────────────
+    payBooking = async (req, res) => {
+      const bookingId = req.params.id;
+      const loggedInUserId = req._user.id;
+      const { paymentMethod } = req.body;
+
+      // ─── 1. Validate payment method ─────────────────────
+      const allowedPaymentMethods = [
+        "creditCard",
+        "bankTransfer",
+        "paypal",
+      ];
+
+      if (!allowedPaymentMethods.includes(paymentMethod)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid payment method. Allowed values: ${allowedPaymentMethods.join(
+            ", ",
+          )}.`,
+        });
+      }
+
+      // ─── 2. Find booking ────────────────────────────────
+      const booking = await Booking.findOne({
+        _id: bookingId,
+        isDeleted: false,
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: "Booking not found or has been removed.",
+        });
+      }
+
+      // ─── 3. Check booking ownership ─────────────────────
+      if (booking.guestId.toString() !== loggedInUserId.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to pay for this booking.",
+        });
+      }
+
+      // ─── 4. Check booking status ────────────────────────
+      if (booking.status !== "confirmed") {
+        return res.status(400).json({
+          success: false,
+          message: "Only confirmed bookings can be paid.",
+        });
+      }
+
+      // ─── 5. Check current payment status ────────────────
+      if (booking.payment?.status !== "unpaid") {
+        return res.status(400).json({
+          success: false,
+          message: `This booking payment is already ${booking.payment?.status}.`,
+        });
+      }
+
+      // ─── 6. Validate payment amount ─────────────────────
+      const bookingTotalPrice = booking.pricingSnapshot?.totalPrice;
+
+      if (!Number.isFinite(bookingTotalPrice) || bookingTotalPrice <= 0) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Booking pricing snapshot is missing or invalid. Payment cannot be completed.",
+        });
+      }
+
+      // ─── 7. Store payment information ───────────────────
+      booking.payment.status = "held";
+      booking.payment.method = paymentMethod;
+      booking.payment.amount = bookingTotalPrice;
+      booking.payment.paidAt = new Date();
+
+      // ─── 8. Save booking ────────────────────────────────
+      await booking.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Payment completed successfully and funds are now held.",
+        data: booking,
+      });
+    };
+
+
+
+    // ──────────────────────────────────────────────
+    // PATCH /api/v1/bookings/:id/complete
+    // Complete a finished stay — Property Host or Admin
+    // ──────────────────────────────────────────────
+    completeBooking = async (req, res) => {
+      const bookingId = req.params.id;
+      const loggedInUserId = req._user.id;
+      const loggedInUserRole = req._user.role;
+
+      // ─── 1. Find booking ────────────────────────────────
+      const booking = await Booking.findOne({
+        _id: bookingId,
+        isDeleted: false,
+      });
+
+      if (!booking) {
+        return res.status(404).json({
+          success: false,
+          message: "Booking not found or has been removed.",
+        });
+      }
+
+      // ─── 2. Check permission ────────────────────────────
+      // Only the property host or an admin can complete the booking
+      const isBookingHost =
+        booking.hostId.toString() === loggedInUserId.toString();
+
+      const isAdmin = loggedInUserRole === "admin";
+
+      if (!isBookingHost && !isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to complete this booking.",
+        });
+      }
+
+      // ─── 3. Check booking status ────────────────────────
+      if (booking.status !== "confirmed") {
+        return res.status(400).json({
+          success: false,
+          message: `A ${booking.status} booking cannot be completed.`,
+        });
+      }
+
+      // ─── 4. Check payment status ────────────────────────
+      // The stay cannot be completed financially unless payment is held
+      if (booking.payment?.status !== "held") {
+        return res.status(400).json({
+          success: false,
+          message: "The booking must be paid before it can be completed.",
+        });
+      }
+
+      // ─── 5. Ensure the stay has ended ───────────────────
+      const now = new Date();
+
+      const today = new Date(now);
+      today.setHours(0, 0, 0, 0);
+
+      const normalizedEndDate = new Date(booking.endDate);
+      normalizedEndDate.setHours(0, 0, 0, 0);
+
+      if (normalizedEndDate > today) {
+        return res.status(400).json({
+          success: false,
+          message: "The booking cannot be completed before the stay ends.",
+        });
+      }
+
+      // ─── 6. Complete booking ────────────────────────────
+      booking.status = "completed";
+      booking.completedAt = now;
+
+      // Payment remains held during the dispute window
+      // It will be released later if no dispute is opened
+      await booking.save();
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Booking completed successfully. Payment remains held during the dispute period.",
+        data: booking,
+      });
+    };
 
   // Reject booking
   rejectBooking = async (req, res) => {

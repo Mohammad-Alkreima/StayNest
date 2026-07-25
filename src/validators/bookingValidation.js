@@ -52,27 +52,10 @@ const createBookingValidation = [
 
     return true;
   }),
-   body("paymentMethod")
-  .optional()
-  .isString()
-  .withMessage("paymentMethod must be a string")
-  .bail()
-  .trim()
-  .notEmpty()
-  .withMessage("paymentMethod cannot be empty")
-  .bail()
-  .custom((value) => {
-    if (!ALLOWED_PAYMENT_METHODS.includes(value)) {
-      throw new Error(
-        `Invalid paymentMethod. Allowed values: ${ALLOWED_PAYMENT_METHODS.join(", ")}`
-      );
-    }
-
-    return true;
-  }),
+ 
   validate,
 
-]
+];
 
 // ─── Update booking data ─────────────────────────────────────────────────────
 const updateBookingValidation = [
@@ -247,12 +230,17 @@ const getBookingsValidation = [
     ),
 
   query("paymentStatus")
-    .optional()
-    .isIn(["paid", "unpaid", "pending"])
-    .withMessage(
-    "Payment status must be one of: paid, unpaid, pending.",
-     ),
-
+  .optional()
+  .isIn([
+    "unpaid",
+    "held",
+    "released",
+    "refunded",
+    "partially_refunded",
+  ])
+  .withMessage(
+    "Payment status must be one of: unpaid, held, released, refunded, partially_refunded.",
+  ),
   query("type")
     .optional()
     .isIn(["upcoming", "ongoing", "past"])
