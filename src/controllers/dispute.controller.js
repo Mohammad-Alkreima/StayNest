@@ -1,6 +1,6 @@
 const Dispute = require("../models/Dispute");
 const Booking = require("../models/Booking");
-const Property = require("../models/Property");
+//const Property = require("../models/Property");
 const User = require("../models/User");
 const {
   applyDisputeResolution,
@@ -48,27 +48,61 @@ class DisputeController {
   };
 
   createDispute = async (req, res) => {
-    console.log("USER FROM REQ:", req._user);
+    //console.log("USER FROM REQ:", req._user);
     const { bookingId, reason } = req.body;
     const reporterId = req._user.id;
-    // 1. جلب بيانات الحجز مع بيانات العقار لمعرفة من هو المضيف
+    // 1. Retrieve the booking along with the related property
+    // to determine the property host.
     const booking = await Booking.findById(bookingId).populate("propertyId");
 
     if (!booking) {
       return res
         .status(404)
-        .json({ success: false, message: "الحجز غير موجود" });
+        .json({ success: false, message: "Booking not found." });
     }
 
-    // 2. التحقق من شرط أن الحجز "مكتمل" حصراً لفتح النزاع
+    // 2. Ensure that only completed bookings can have disputes opened.
     if (booking.status !== "completed") {
       return res.status(400).json({
         success: false,
-        message: "لا يمكن فتح نزاع إلا للحجوزات المكتملة فقط",
+        message: "A dispute can only be opened for completed bookings.",
       });
     }
 
-    // 3. تحديد الأطراف ونوع النزاع تلقائياً
+    // A dispute can only be opened while the completed booking payment
+    // is still held by the platform.
+    if (booking.payment?.status !== "held") {
+      return res.status(409).json({
+        success: false,
+        message:
+          "A dispute cannot be opened because the payment for this booking is no longer held by the platform.",
+      });
+    }
+
+    // Ensure that the booking has a valid completion timestamp.
+    if (!booking.completedAt) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "A dispute cannot be opened because the booking completion time is missing.",
+      });
+    }
+
+    // The parties have 24 hours after completion to open a dispute.
+    const disputeWindowInMilliseconds = 24 * 60 * 60 * 1000;
+    const disputeDeadline = new Date(
+      booking.completedAt.getTime() + disputeWindowInMilliseconds,
+    );
+
+    if (new Date() > disputeDeadline) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "The dispute window has expired. Disputes can only be opened within 24 hours after the booking is completed.",
+      });
+    }
+
+    // 3. Automatically determine the dispute parties and dispute type.
     const hostId = booking.propertyId.hostId.toString();
     const guestId = booking.guestId.toString();
 
@@ -83,20 +117,23 @@ class DisputeController {
     } else {
       return res.status(403).json({
         success: false,
-        message: "غير مسموح لك بفتح نزاع على هذا الحجز لعدم كونك أحد طرفيه",
+        message:
+           "You are not allowed to open a dispute for this booking because you are not one of its parties.",
       });
     }
 
-    // 4. التأكد من عدم وجود نزاع مسبق مفتوح لنفس الحجز من نفس الشخص (اختياري لزيادة الموثوقية)
+    // 4. Ensure that the same user has not already opened
+    // a dispute for this booking.
     const existingDispute = await Dispute.findOne({ bookingId, reporterId });
     if (existingDispute) {
       return res.status(400).json({
         success: false,
-        message: "لقد قمت بفتح نزاع مسبقاً لهذا الحجز",
+        message:
+          "You have already opened a dispute for this booking.",
       });
     }
 
-    // 5. إنشاء النزاع بالحالة الافتتاحية (open) والحقول الجديدة بقيمها الافتراضية
+    // 5. Create the dispute with the default initial status (open).
     const newDispute = await Dispute.create({
       bookingId,
       reporterId,
@@ -108,7 +145,8 @@ class DisputeController {
 
     res.status(201).json({
       success: true,
-      message: "تم فتح النزاع بنجاح وهو قيد المراجعة من الإدارة",
+      message:
+          "The dispute has been created successfully and is now under administrative review.",
       data: newDispute,
     });
   };
@@ -118,38 +156,41 @@ class DisputeController {
     const { reason } = req.body;
     const userId = req._user.id;
 
-    // 1. البحث عن النزاع
+    // 1. Find the dispute.
     const dispute = await Dispute.findById(id);
 
     if (!dispute) {
       return res
         .status(404)
-        .json({ success: false, message: "النزاع غير موجود" });
+        .json({ success: false, message: "Dispute not found." });
     }
 
-    // 2. التحقق من أن المستخدم هو صاحب الشكوى حصراً
+    // 2. Ensure that only the dispute reporter can update it.
     if (dispute.reporterId.toString() !== userId) {
       return res.status(403).json({
         success: false,
-        message: "غير مسموح لك بتعديل شكوى لم تقم بتقديمها",
+        message:
+           "You are not allowed to update a dispute that you did not create.",
       });
     }
 
-    // 3. التحقق من أن الشكوى في حالة "open" فقط (يُمنع التعديل في in-progress أو resolved أو غيرها)
+    // 3. Allow updates only while the dispute is still open.
     if (dispute.status !== "open") {
       return res.status(400).json({
         success: false,
-        message: "عذراً، لا يمكن تعديل سبب الشكوى لأن حالتها لم تعد مفتوحة",
+        message:
+           "The dispute reason can no longer be updated because the dispute is no longer open.",
       });
     }
 
-    // 4. تحديث السبب فقط
+    // 4. Update only the dispute reason.
     dispute.reason = reason;
     await dispute.save();
 
     res.status(200).json({
       success: true,
-      message: "تم تحديث سبب الشكوى بنجاح",
+      message:
+         "The dispute reason has been updated successfully.",
       data: dispute,
     });
   };
@@ -165,24 +206,25 @@ class DisputeController {
       adminNotes,
     } = req.body;
 
-    // 1. جلب النزاع للتأكد من وجوده
+    // 1. Retrieve the dispute to ensure it exists.
     const dispute = await Dispute.findById(id);
 
     if (!dispute) {
       return res
         .status(404)
-        .json({ success: false, message: "النزاع غير موجود" });
+        .json({ success: false, message: "Dispute not found." });
     }
 
     // Prevent resolving the same dispute and executing its payment twice.
     if (dispute.status === "resolved") {
       return res.status(400).json({
         success: false,
-        message: "تم حل هذا النزاع مسبقاً",
+        message:
+          "This dispute has already been resolved.",
       });
     }
 
-    // 2. تحديث بيانات النزاع بقرار الآدمن والتسوية
+    // 2. Update the dispute with the admin's decision and settlement details.
     dispute.status = status; // resolved, rejected, in-progress, etc.
     dispute.winner = winner || null;
     dispute.resolutionType = resolutionType || null;
@@ -196,10 +238,11 @@ class DisputeController {
       await applyDisputeResolution(dispute);
     }
 
-    // 3. الرد بنجاح العملية دون أي قيود أو حظر تلقائي
+    // 3. Return a successful response after updating the dispute.
     res.status(200).json({
       success: true,
-      message: "تم تحديث قرار الشكوى والتسوية بنجاح",
+      message:
+         "The dispute resolution has been updated successfully.",
       data: dispute,
     });
   };

@@ -11,7 +11,7 @@ const disputeSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: [true, "UserId is required"],
-    }, // من قدم الشكوى
+    }, // User who submitted the dispute
     targetId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -25,7 +25,7 @@ const disputeSchema = new mongoose.Schema(
     reason: {
       type: String,
       required: [true, "Reason is required"],
-    }, // سبب النزاع
+    }, // Reason for the dispute
     winner: {
       type: String,
       enum: ["guest", "host", null],
@@ -50,7 +50,7 @@ const disputeSchema = new mongoose.Schema(
       enum: ["open", "in-progress", "resolved"],
       default: "open",
     },
-    adminNotes: String, // ملاحظات الـ Super Admin
+    adminNotes: String, // Super Admin notes
   },
   {
     timestamps: true,

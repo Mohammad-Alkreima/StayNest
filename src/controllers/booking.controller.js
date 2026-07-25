@@ -468,7 +468,6 @@ class BookingController {
   // Update booking details — Guest owner only
   // ──────────────────────────────────────────────
   updateBooking = async (req, res) => {
-    try {
       // Get the booking ID from the URL and the logged-in user ID from the token
       const bookingId = req.params.id;
       const loggedInUserId = req._user.id;
@@ -697,22 +696,6 @@ class BookingController {
         message: "Booking updated successfully ✅",
         data: booking,
       });
-    } catch (error) {
-      console.error("Update Booking Error:", error);
-
-      // Handle an exact duplicate active booking period
-      if (error.code === 11000) {
-        return res.status(409).json({
-          success: false,
-          message: "This property is already booked for the selected dates.",
-        });
-      }
-
-      return res.status(500).json({
-        success: false,
-        message: "Internal Server Error during booking update.",
-      });
-    }
   };
 
   // ──────────────────────────────────────────────
@@ -720,7 +703,6 @@ class BookingController {
   // Cancel booking — Guest owner or Admin
   // ──────────────────────────────────────────────
   cancelBooking = async (req, res) => {
-    try {
       const bookingId = req.params.id;
       const loggedInUserId = req._user.id;
       const loggedInUserRole = req._user.role;
@@ -909,14 +891,6 @@ class BookingController {
         message: "Booking cancelled successfully.",
         data: booking,
       });
-    } catch (error) {
-      console.error("Cancel Booking Error:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: "Internal Server Error during booking cancellation.",
-      });
-    }
   };
 
 
@@ -925,7 +899,6 @@ class BookingController {
   // Confirm booking — Property Host or Admin
   // ──────────────────────────────────────────────
   confirmBooking = async (req, res) => {
-    try {
       // Get booking ID and logged-in user information
       const bookingId = req.params.id;
       const loggedInUserId = req._user.id;
@@ -980,14 +953,6 @@ class BookingController {
         message: "Booking confirmed successfully.",
         data: booking,
       });
-    } catch (error) {
-      console.error("Confirm Booking Error:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: "Internal Server Error during booking confirmation.",
-      });
-    }
   };
 
 
@@ -1170,7 +1135,6 @@ class BookingController {
 
   // Reject booking
   rejectBooking = async (req, res) => {
-    try {
       const bookingId = req.params.id;
 
       const { rejectionReason } = req.body;
@@ -1236,13 +1200,6 @@ class BookingController {
         message: "Booking rejected successfully.",
         data: booking,
       });
-    } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: "Something went wrong while rejecting the booking.",
-        error: error.message,
-      });
-    }
   };
 }
 
