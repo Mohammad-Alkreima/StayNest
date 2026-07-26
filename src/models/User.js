@@ -31,6 +31,29 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+
+    // ===== Booking Restriction Information =====
+
+        bookingWarningSentAt: {
+        type: Date,
+        default: null,
+        },
+
+        bookingBlockedAt: {
+        type: Date,
+        default: null,
+        },
+
+        bookingBlockedUntil: {
+        type: Date,
+        default: null,
+        },
+
+        bookingBlockReason: {
+        type: String,
+        trim: true,
+        default: null,
+        },
     isDeleted: {
         type: Boolean,
         default: false

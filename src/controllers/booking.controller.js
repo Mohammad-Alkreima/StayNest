@@ -2,6 +2,9 @@ const Booking = require("../models/Booking");
 const Property = require("../models/Property");
 const User = require("../models/User");
 const mongoose = require("mongoose");
+const {
+  evaluateGuestBookingRestriction,
+} = require("../services/bookingRestriction.service");
 
 
 const LOYALTY_LEVELS = require("../constants/loyaltyLevels");
@@ -61,7 +64,26 @@ class BookingController {
         message: "Guest not found.",
       });
     }
-    const loyaltyLevel = this.getLoyaltyLevel(guest.totalBookings || 0);
+
+    // Prevent a temporarily blocked guest from creating new bookings
+    const now = new Date();
+
+    if (
+      guest.bookingBlockedUntil &&
+      guest.bookingBlockedUntil > now
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "You are temporarily blocked from creating new bookings.",
+        bookingBlockedUntil: guest.bookingBlockedUntil,
+        bookingBlockReason: guest.bookingBlockReason || null,
+      });
+    }
+
+    const loyaltyLevel = this.getLoyaltyLevel(
+      guest.totalBookings || 0,
+    );
 
     // Check overlapping bookings
     const overlap = await Booking.findOne({
@@ -338,7 +360,6 @@ class BookingController {
 // Get earnings summary and monthly report
 // Returns overall earnings statistics and monthly breakdown for the logged-in host
 // ──────────────────────────────────────────────
-
   getHostEarnings = async (req, res) => {
     const hostId = req._user.id;
     
@@ -816,7 +837,11 @@ class BookingController {
       }
 
      // ─── 7. Update cancellation information ─────────────────────
+      // Store the booking status before cancellation
+      const cancelledFromStatus = booking.status;
+
       // Mark the booking as cancelled and store the cancellation details
+      booking.cancelledFromStatus = cancelledFromStatus;
       booking.status = "cancelled";
       booking.cancelledAt = now;
       booking.cancelledBy = loggedInUserId;
@@ -880,17 +905,31 @@ class BookingController {
       }
     }
 
-      // ─── 8. Save the updated booking ─────────────────────────────
-      // Save all cancellation changes to the database
-      await booking.save();
+  // 8- Save all cancellation and payment changes
+    await booking.save();
 
-      // ─── 9. Return success response ──────────────────────────────
-      // Return the updated booking after successful cancellation
-      return res.status(200).json({
-        success: true,
-        message: "Booking cancelled successfully.",
-        data: booking,
-      });
+    // Evaluate the guest's cancellation history only when:
+    // 1. The booking was confirmed before cancellation.
+    // 2. The cancellation was performed by the guest.
+    //
+    // Pending cancellations and admin cancellations
+    // do not count toward the guest restriction policy.
+    let bookingRestriction = null;
+
+    if (
+      cancelledFromStatus === "confirmed" &&
+      loggedInUserRole === "guest"
+    ) {
+      bookingRestriction =
+        await evaluateGuestBookingRestriction(booking.guestId);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Booking cancelled successfully.",
+      bookingRestriction,
+      data: booking,
+    });
   };
 
 
@@ -1047,7 +1086,6 @@ class BookingController {
     };
 
 
-
     // ──────────────────────────────────────────────
     // PATCH /api/v1/bookings/:id/complete
     // Complete a finished stay — Property Host or Admin
@@ -1125,6 +1163,20 @@ class BookingController {
       // It will be released later if no dispute is opened
       await booking.save();
 
+      // Increase the guest's completed bookings count.
+      // This value is used to determine the guest's loyalty level.
+      await User.findOneAndUpdate(
+        {
+          _id: booking.guestId,
+          isDeleted: false,
+        },
+        {
+          $inc: {
+            totalBookings: 1,
+          },
+        },
+      );
+
       return res.status(200).json({
         success: true,
         message:
@@ -1184,7 +1236,6 @@ class BookingController {
         });
       }
 
-      // Reject booking
       booking.status = "rejected";
 
       booking.rejectedAt = new Date();

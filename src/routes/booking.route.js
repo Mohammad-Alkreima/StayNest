@@ -37,23 +37,6 @@ router.get(
 );
 
 
-
-/*
-// GET /api/v1/bookings/my-bookings
-router.get(
-  "/my-bookings",
-  [auth, roleMiddleware(["host"])],
-  asyncHandler(bookingController.getHostBookings),
-);
-
-// GET /api/v1/bookings
-router.get(
-  "/",
-  [auth, roleMiddleware(["guest", "admin"])],
-  asyncHandler(bookingController.getMyBookings),
-);
-*/
-
 // src/routes/booking.route.js
 router.get(
   "/host/earnings",
@@ -120,11 +103,6 @@ router.patch(
   asyncHandler(bookingController.updateBooking),
 );
 
-// DELETE /api/v1/bookings/:id
-router.delete(
-  "/:id",
-  [auth, ...bookingIdValidation, roleMiddleware(["admin"])],
-  asyncHandler(bookingController.deleteBooking),
-);
+
 
 module.exports = router;

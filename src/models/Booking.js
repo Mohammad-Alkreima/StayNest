@@ -84,7 +84,6 @@ const bookingSchema = new mongoose.Schema(
         min: [0, "Total price cannot be negative"],
       },
     },
-
  
   status: {
     type: String,
@@ -99,19 +98,81 @@ const bookingSchema = new mongoose.Schema(
     default: "pending",
   },
 
-    paymentMethod: {
+  // ===== Payment Information =====
+  payment: {
+    status: {
       type: String,
-      enum: ["creditCard", "bankTransfer", "cash", "paypal"],
-      default: "bankTransfer",
+      enum: [
+        "unpaid",
+        "held",
+        "released",
+        "refunded",
+        "partially_refunded",
+      ],
+      default: "unpaid",
     },
 
-    paymentStatus: {
+    method: {
       type: String,
-      enum: ["paid", "unpaid", "pending"],
-      default: "pending",
+      enum: ["creditCard", "bankTransfer", "paypal"],
+      default: null,
     },
+
+    amount: {
+      type: Number,
+      default: null,
+      min: [0, "Payment amount cannot be negative"],
+    },
+
+    paidAt: {
+      type: Date,
+      default: null,
+    },
+
+    releasedAt: {
+      type: Date,
+      default: null,
+    },
+
+    platformCommission: {
+      type: Number,
+      required: [true, "Platform commission is required"],
+      min: [0, "Platform commission cannot be negative"],
+    },
+
+    hostEarning: {
+      type: Number,
+      required: [true, "Host earning is required"],
+      min: [0, "Host earning cannot be negative"],
+    },
+
+    refundPercentage: {
+      type: Number,
+      default: 0,
+      min: [0, "Refund percentage cannot be less than 0"],
+      max: [100, "Refund percentage cannot exceed 100"],
+    },
+
+    refundAmount: {
+      type: Number,
+      default: 0,
+      min: [0, "Refund amount cannot be negative"],
+    },
+
+    refundedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+
+   
 
     // ===== Cancellation Information =====
+    cancelledFromStatus: {
+      type: String,
+      enum: ["pending", "confirmed"],
+      default: null,
+    },
 
     cancelledAt: {
       type: Date,
@@ -137,36 +198,6 @@ const bookingSchema = new mongoose.Schema(
       default: null,
     },
 
-  
-
-
-    // ===== Refund Information =====
-
-    refund: {
-      refundPercentage: {
-        type: Number,
-        min: [0, "Refund percentage cannot be less than 0"],
-        max: [100, "Refund percentage cannot exceed 100"],
-        default: 0,
-      },
-
-      refundAmount: {
-        type: Number,
-        min: [0, "Refund amount cannot be negative"],
-        default: 0,
-      },
-
-      refundStatus: {
-        type: String,
-        enum: ["notRequired", "pending", "processed"],
-        default: "notRequired",
-      },
-
-      refundedAt: {
-        type: Date,
-        default: null,
-      },
-    },
 
     // ===== Confirmation Information =====
 

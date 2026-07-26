@@ -9,6 +9,7 @@ const completeExpiredBookings = async () => {
     // We only look for confirmed bookings that have expired
     const expiredBookings = await Booking.find({
       status: "confirmed",
+      "payment.status": "held",
       endDate: { $lte: now },
       isDeleted: false,
     }).select("_id guestId");
@@ -27,6 +28,7 @@ const completeExpiredBookings = async () => {
           {
             _id: expiredBooking._id,
             status: "confirmed",
+            "payment.status": "held",
             endDate: { $lte: now },
             isDeleted: false,
           },
