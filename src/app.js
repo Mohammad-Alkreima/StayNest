@@ -40,6 +40,38 @@ app.use(errorHandler);
 
 
 // listen
+const http = require("http");
+const server = http.createServer(app);
+const { Server } = require("socket.io");
+const io = new Server(server);
+
+// Storage of connected users (UserId -> SocketId)
+const onlineUsers = new Map();
+
+io.on("connection", (socket) => {
+    console.log("A user connected:", socket.id);
+
+    // When a user (whether host or admin) logs in and links their account to the socket
+    socket.on("register", (userId) => {
+        onlineUsers.set(userId, socket.id);
+        console.log(`User registered with ID: ${userId} and Socket ID: ${socket.id}`);
+    });
+
+    socket.on("disconnect", () => {
+        for (let [userId, socketId] of onlineUsers.entries()) {
+            if (socketId === socket.id) {
+                onlineUsers.delete(userId);
+                console.log(`User disconnected: ${userId}`);
+                break;
+            }
+        }
+    });
+});
+
+// Making io and onlineUsers available within the Express app
+app.set("io", io);
+app.set("onlineUsers", onlineUsers);
+
 const PORT = process.env.PORT;
 const MONGODB_URL = process.env.MONGODB_URL;
 mongoose
@@ -51,7 +83,7 @@ mongoose
     startBookingExpirationJob();
     startPaymentReleaseJob();
 
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log("Connected to MongoDB");
       console.log(`Server Is Running on http://localhost:${PORT}`);
     });
