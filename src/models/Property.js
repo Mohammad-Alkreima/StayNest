@@ -48,13 +48,27 @@ const propertySchema = new mongoose.Schema(
     status: {
       type: String,
       enum: ["available", "unavailable", "maintenance", "suspended"],
-      default: "available",
+      default: "unavailable",
     },
     amenities: [String],
     isDeleted: {
       type: Boolean,
       default: false,
     },
+    // documents
+    isVerified: {
+        type: Boolean,
+        default: false
+    },
+    statusVerified: {
+      type: String,
+      enum: ["approved", "rejected"],
+    },
+    reasonRejected: String,
+    verificationDocuments: {
+        type: String,
+        required: [true, "Property ownership document is required"]
+    }
   },
   {
     timestamps: true,

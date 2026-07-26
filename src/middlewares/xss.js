@@ -11,7 +11,7 @@ const sanitizeValue = (input) => {
     return input;
 };
 
-// يشتغل بشكل recursive على nested objects وArrays
+// It operates recursively on nested objects and arrays.
 const sanitizeDeep = (data) => {
     if (typeof data === "string") return sanitizeValue(data);
     if (Array.isArray(data)) return data.map(sanitizeDeep);

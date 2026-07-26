@@ -19,7 +19,6 @@ const createPropertyValidation = [
     .withMessage("Description must be a string")
     .escape(),
 
-  // 🌍 التعديل الجوهري 1: التحقق من حقول كائن الموقع الجغرافي عند الإضافة
   body("location")
     .notEmpty()
     .withMessage("Location object is required")
@@ -144,6 +143,9 @@ const createPropertyValidation = [
       return true;
     }),
 
+    body("verificationDocuments")
+      .isURL().withMessage("verificationDocuments must be URL"),
+
   validate,
 ];
 
@@ -168,7 +170,6 @@ const updatePropertyValidation = [
     .withMessage("Description must be a string")
     .escape(),
 
-  // 🌍 التعديل الجوهري 2: التحقق من حقول الموقع كـ حقول اختيارية عند التحديث (Optional Validation)
   body("location")
     .optional({ checkFalsy: true })
     .isObject()
@@ -259,10 +260,31 @@ const updatePropertyValidation = [
     .isArray()
     .withMessage("Amenities must be an array"),
 
+  body("verificationDocuments")
+      .optional({ checkFalsy: true })
+      .isURL().withMessage("verificationDocuments must be URL"),
+
   validate,
+];
+
+const verfiyPropertyValidation = [
+  body("propertyId")
+    .isMongoId().withMessage("Invlaid ID"),
+
+  body("status")
+    .isIn(["approved", "rejected"]).withMessage("Invalid val, the value must be approved or rejected"),
+
+  body("rejectionReason")
+    .optional({
+      checkFalsy: true
+    })
+    .isString().withMessage("rejectionReason must be string"),
+
+  validate
 ];
 
 module.exports = {
   createPropertyValidation,
   updatePropertyValidation,
+  verfiyPropertyValidation
 };

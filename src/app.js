@@ -28,6 +28,7 @@ app.use(xssSanitize);
 // apis
 app.get("/api/health", (req, res) => res.status(200).json("API is Healthy"));
 app.use("/api/v1/auth", require("./routes/auth.route"));
+app.use("/api/v1/uploads", require("./routes/uploads.route"));
 app.use("/api/v1/properties", require("./routes/property.route"));
 app.use("/api/v1/bookings", require("./routes/booking.route"));
 app.use("/api/v1/reviews", require("./routes/review.route"));
