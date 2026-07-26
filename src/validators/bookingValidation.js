@@ -1,7 +1,6 @@
 const { body, param, query } = require("express-validator");
 const validate = require("../middlewares/validate");
 
-const ALLOWED_PAYMENT_METHODS = ["creditCard", "bankTransfer", "cash", "paypal"];
 
 // ─── Create a new booking ─────────────────────────────────────────────────
 const createBookingValidation = [
@@ -84,26 +83,6 @@ const updateBookingValidation = [
     .bail()
     .toDate(),
 
-  // paymentMethod is optional, but empty or unsupported values are not allowed
-  body("paymentMethod")
-    .optional()
-    .isString()
-    .withMessage("paymentMethod must be a string")
-    .bail()
-    .trim()
-    .notEmpty()
-    .withMessage("paymentMethod cannot be empty")
-    .bail()
-    .custom((value) => {
-      if (!ALLOWED_PAYMENT_METHODS.includes(value)) {
-        throw new Error(
-          `Invalid paymentMethod. Allowed values: ${ALLOWED_PAYMENT_METHODS.join(", ")}`
-        );
-      }
-
-      return true;
-    }),
-
   // Allow only the fields that the guest is permitted to update
   body().custom((requestBody) => {
     // Ensure the request body is a valid JSON object
@@ -115,11 +94,7 @@ const updateBookingValidation = [
       throw new Error("Request body must be a valid JSON object");
     }
 
-    const allowedFields = [
-      "startDate",
-      "endDate",
-      "paymentMethod",
-    ];
+   const allowedFields = ["startDate", "endDate"];
 
     const receivedFields = Object.keys(requestBody);
 
