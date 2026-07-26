@@ -8,7 +8,9 @@ const idMiddleware = require("../middlewares/id");
 const {
   createPropertyValidation,
   updatePropertyValidation,
+  verfiyPropertyValidation,
 } = require("../validators/propertyValidation");
+
 router.get("/", auth, asyncHandler(propertyController.getAllProperties));
 
 router.get(
@@ -22,6 +24,8 @@ router.post(
   [auth, createPropertyValidation, roleMiddleware("host")],
   asyncHandler(propertyController.createProperty),
 );
+
+router.post("/verfiyProperty", [auth, roleMiddleware("admin"), verfiyPropertyValidation], asyncHandler(propertyController.verifyProperty));
 
 router.put(
   "/:id",

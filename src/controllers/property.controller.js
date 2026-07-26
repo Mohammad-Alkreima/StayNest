@@ -13,8 +13,8 @@ class propertyController {
       serviceFee,
       maxGuests,
       images,
-      status,
       amenities,
+      verificationDocuments
     } = req.body;
 
     if (!title || !location || !pricePerNight || !maxGuests) {
@@ -81,14 +81,6 @@ class propertyController {
       });
     }
 
-    const allowedStatuses = ["available", "unavailable", "maintenance"];
-    if (status && !allowedStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}`,
-      });
-    }
-
     const property = await Property.create({
       hostId,
       title: cleanedTitle,
@@ -99,19 +91,21 @@ class propertyController {
       serviceFee: parsedServiceFee,
       maxGuests: parsedMaxGuests,
       images: images || [],
-      status: status || "available",
       amenities: amenities || [],
       isDeleted: false,
+      verificationDocuments,
+      isVerified: false
     });
 
     return res.status(201).json({
       success: true,
-      message: "Property created successfully 🏡",
+      message: "the property has been created, must be waiting to review the documents",
       data: property,
     });
   };
+
   getAllProperties = async (req, res) => {
-    let filterObj = { isDeleted: false, status: "available" };
+    let filterObj = { isDeleted: false, isVerified: true };
 
     const allowedFilters = [
       "title",
@@ -222,6 +216,52 @@ class propertyController {
       data: properties,
     });
   };
+
+  verifyProperty = async (req, res) => {
+    const { propertyId, status, rejectionReason } = req.body;
+
+    let updateData = {};
+
+    if (status === "approved") {
+        updateData.isVerified = true;
+        updateData.statusVerified = "approved";
+        updateData.status = "available";
+        updateData.reasonRejected = null;
+    } else if (status === "rejected") {
+        updateData.isVerified = false;
+        updateData.statusVerified = "rejected";
+        updateData.status = "unavailable";
+        updateData.reasonRejected = rejectionReason || "the admin didnot write the resoan";
+    } else {
+        return res.status(400).json({ message: "Invalid status value." });
+    }
+
+    //We only update if it has not been previously documented and has not been previously rejected.
+    const property = await Property.findOneAndUpdate(
+        { 
+          _id: propertyId, 
+          isVerified: { $ne: true },          // didnot verified before
+          statusVerified: { $ne: "rejected" }  // didnot rejected before
+        },
+        updateData,
+        { new: true }
+    )
+    .populate({ path: "hostId", select: "name phone profileImage" })
+    .select("title description images location.address isVerified statusVerified reasonRejected status");
+
+    // if null => property does not exsist or it is verified or rejected before
+    if (!property) {
+        return res.status(400).json({ 
+          message: "Property not found, or it has already been verified/rejected before." 
+        });
+    }
+
+    res.status(200).json({
+        message: status === "approved" ? "verified successed and posted your property" : "rejected the property",
+        property
+    });
+  };
+
   getPropertyById = async (req, res) => {
     const { id } = req.params;
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
@@ -229,16 +269,17 @@ class propertyController {
         .status(400)
         .json({ success: false, message: "Invalid Property ID format." });
     }
-    // نجلب العقار بشرط ألا يكون محذوفاً ناعماً
+    
     const property = await Property.findOne({
       _id: id,
       isDeleted: false,
+      isVerified: true
     }).populate("hostId", "name email");
 
     if (!property) {
       return res.status(404).json({
         success: false,
-        message: "Property not found or has been removed.",
+        message: "Property not found or has been removed, or has not yet been documented.",
       });
     }
 
@@ -248,20 +289,20 @@ class propertyController {
       data: property,
     });
   };
+
   updateProperty = async (req, res) => {
     const { id } = req.params;
     const currentUserId = req._user.id;
+
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid Property ID format." });
+      return res.status(400).json({ success: false, message: "Invalid Property ID format." });
     }
+
     let property = await Property.findOne({ _id: id, isDeleted: false });
     if (!property) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Property not found." });
+      return res.status(404).json({ success: false, message: "Property not found." });
     }
+
     if (property.hostId.toString() !== currentUserId) {
       return res.status(403).json({
         success: false,
@@ -270,18 +311,32 @@ class propertyController {
     }
 
     const updates = req.body;
+    
+    // Protecting sensitive fields so that the host does not change them itself
     delete updates.hostId;
     delete updates.isDeleted;
+    delete updates.isVerified;
+    delete updates.statusVerified;
+    delete updates.resoanRejected;
 
+    // check the price is valid
     if (
       updates.pricePerNight &&
-      (isNaN(Number(updates.pricePerNight)) ||
-        Number(updates.pricePerNight) <= 0)
+      (isNaN(Number(updates.pricePerNight)) || Number(updates.pricePerNight) <= 0)
     ) {
       return res.status(400).json({
         success: false,
         message: "Updated price must be a positive number.",
       });
+    }
+
+    // if host update primary details or douments => property will be unavailable and admin must be checking again
+    const criticalFieldsChanged = updates.verificationDocuments || updates.title || updates.location || updates.pricePerNight;
+    
+    if (criticalFieldsChanged) {
+        updates.isVerified = false;
+        updates.statusVerified = null;
+        updates.status = "unavailable";
     }
 
     property = await Property.findByIdAndUpdate(
@@ -295,17 +350,20 @@ class propertyController {
 
     return res.status(200).json({
       success: true,
-      message: "Property updated successfully ✅",
+      message: criticalFieldsChanged 
+        ? "Property updated successfully, and it has been sent back to admin for re-verification." 
+        : "Property updated successfully",
       data: property,
     });
   };
+
   deleteProperty = async (req, res) => {
     const { id } = req.params;
     const currentUserId = req._user.id;
+    const currentUserRole = req._user.role;
 
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
-      return res
-        .status(400)
+      return res.status(400)
         .json({ success: false, message: "Invalid Property ID format." });
     }
 
@@ -317,7 +375,8 @@ class propertyController {
       });
     }
 
-    if (property.hostId.toString() !== currentUserId) {
+    // allow host and admin to delete property
+    if (property.hostId.toString() !== currentUserId && currentUserRole !== "admin") {
       return res.status(403).json({
         success: false,
         message: "Access Denied. You cannot delete this property.",
@@ -335,18 +394,19 @@ class propertyController {
     if (activeOrFutureBooking) {
       return res.status(400).json({
         success: false,
-        message:
-          "Cannot delete this property. There are active or upcoming bookings associated with it.",
+        message: "Cannot delete this property. There are active or upcoming bookings associated with it.",
       });
     }
 
+    // Update fields when deleted the property
     property.isDeleted = true;
     property.status = "unavailable";
+    property.isVerified = false; // Remove the verification to ensure it never appears again.
     await property.save();
 
     return res.status(200).json({
       success: true,
-      message: "Property archived and unlisted successfully 🗑️🏡",
+      message: "Property archived and unlisted successfully",
     });
   };
 }
