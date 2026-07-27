@@ -2,11 +2,12 @@ const { default: mongoose } = require("mongoose");
 const Review = require("../models/Review");
 const Property = require("../models/Property");
 const Booking = require("../models/Booking");
+const User = require("../models/User");
 
 const getReviewPopulateOptions = () => [
     {
         path: "bookingId",
-        select: "totalPrice",
+        select: "totalPrice hostId guestId",
         populate: { path: "propertyId", select: "title" }
     },
     {
@@ -17,7 +18,6 @@ const getReviewPopulateOptions = () => [
 
 class ReviewContoller {
     addReview = async(req, res) => {
-        console.log("Booking object:", req.booking);
         const { bookingId, rating, comment, reviewerRole } = req.body;
         const reviewerId = req._user.id;
 
@@ -45,7 +45,6 @@ class ReviewContoller {
         });
 
         // Check mutual evaluation status
-        // Has the other party already written their review?
         const oppositeRole = reviewerRole === "guestToHost" ? "hostToGuest" : "guestToHost";
         const oppositeReview = await Review.findOne({ bookingId, reviewerRole: oppositeRole });
 
@@ -60,6 +59,24 @@ class ReviewContoller {
             await Review.updateOne({ _id: review._id }, { visibleFrom: autoVisibleDate });
         }
 
+        // Send a notification via Socket.io to the other party in the reservation
+        const io = req.app.get("io");
+        const onlineUsers = req.app.get("onlineUsers");
+        
+        // Bring the booking details to find out who the other party is (guest or host).
+        const booking = await Booking.findById(bookingId);
+        if (booking) {
+            const targetUserId = reviewerRole === "guestToHost" ? booking.hostId.toString() : booking.guestId.toString();
+            const targetSocketId = onlineUsers.get(targetUserId);
+
+            if (targetSocketId) {
+                io.to(targetSocketId).emit("newReviewNotification", {
+                    message: "The other party has left you a review. Write your review so that the reviews are displayed immediately!",
+                    bookingId
+                });
+            }
+        }
+
         res.status(201).json({ 
             message: "your rating has been completed, will be avaliable when the opposite user write his review" 
         });
@@ -68,7 +85,7 @@ class ReviewContoller {
     getAllReviews = async (req, res) => {
         const query = {};
         
-        // only amdin can see all reviews including isVisible: fale
+        // only admin can see all reviews including isVisible: false
         const isAdmin = req._user?.role === "admin";
         if (!isAdmin) {
             query.isVisible = true;
@@ -167,7 +184,7 @@ class ReviewContoller {
                     select: "rating comment reviewerId"
                 });
 
-            // merage all rating from all rating in array
+            // merge all rating from all rating in array
             const allReviews = bookings.flatMap(b => b.reviews);
             
             // avg
@@ -260,6 +277,21 @@ class ReviewContoller {
             { $set: { isVisible: false } }
         );
 
+        // Send an immediate notification to the admin that a rating has been reported.
+        const io = req.app.get("io");
+        const onlineUsers = req.app.get("onlineUsers");
+        const admin = await User.findOne({ role: "admin" });
+
+        if (admin) {
+            const adminSocketId = onlineUsers.get(admin._id.toString());
+            if (adminSocketId) {
+                io.to(adminSocketId).emit("reviewReportedNotification", {
+                    message: "A new assessment has been reported and requires your review..",
+                    reviewId: review._id
+                });
+            }
+        }
+
         return res.status(200).json({
             message: "your report send suucessfully, and managment will review it"
         })
@@ -276,9 +308,14 @@ class ReviewContoller {
             })
         };
 
+        // Prepare the Socket tools to send a notification to the reviewer later.
+        const io = req.app.get("io");
+        const onlineUsers = req.app.get("onlineUsers");
+
         if(action === "delete") {
             const reviewToDelete = await Review.findById(id);
             const bookingId = reviewToDelete.bookingId;
+            const reviewOwnerId = reviewToDelete.reviewerId.toString();
 
             // delete review
             await Review.findByIdAndDelete(id);
@@ -289,12 +326,20 @@ class ReviewContoller {
                 { isVisible: false }
             );
 
+            // The reviewer was notified that their review was deleted due to a violation of the guidelines.
+            const ownerSocketId = onlineUsers.get(reviewOwnerId);
+            if (ownerSocketId) {
+                io.to(ownerSocketId).emit("reviewActionNotification", {
+                    message: "Your rating has been deleted after the administration reviewed a complaint filed against it."
+                });
+            }
+
             return res.status(200).json({ message: "deleted your rating and hide rating another user" });
         };
 
         if (action === "dismiss") {
             const result = await Review.updateOne(
-                { _id: id }, // 
+                { _id: id }, 
                 { 
                     $set: { "reports.$[elem].status": "dismissed" } 
                 },
@@ -303,15 +348,12 @@ class ReviewContoller {
                 }
             );
 
-            //  if true => there is any review
             if (result.matchedCount === 0) {
                 return res.status(404).json({ message: "the review does not exsist" });
             }
 
-            // ckeck review
             const updatedReview = await Review.findById(id);
             
-            // ensure if updatedReview is exsisting 
             if (!updatedReview) return res.status(404).json({ message: "rating does not exsisting" });
 
             const hasOtherPending = updatedReview.reports.some(report => report.status === "pending");
@@ -326,6 +368,14 @@ class ReviewContoller {
                     { bookingId: updatedReview.bookingId, _id: { $ne: id } },
                     { $set: { isVisible: true } }
                 );
+            }
+
+            // The reviewer was notified that their report was rejected and their review was re-examined.
+            const ownerSocketId = onlineUsers.get(updatedReview.reviewerId.toString());
+            if (ownerSocketId) {
+                io.to(ownerSocketId).emit("reviewActionNotification", {
+                    message: "The complaint against your rating has been reviewed, approved, and displayed again.."
+                });
             }
 
             return res.status(200).json({ message: "blocked the review, and display the rating" });
