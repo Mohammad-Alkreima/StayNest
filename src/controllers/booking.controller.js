@@ -169,6 +169,18 @@ class BookingController {
       },
     });
 
+    // Send real-time notification to the host about the new booking
+    const io = req.app.get("io");
+    const onlineUsers = req.app.get("onlineUsers");
+    const hostSocketId = onlineUsers.get(property.hostId.toString());
+
+    if (hostSocketId) {
+      io.to(hostSocketId).emit("newBookingNotification", {
+        message: "You have a new booking request pending review.",
+        bookingId: booking._id,
+      });
+    }
+
     return res.status(201).json({
       success: true,
       message: "Booking created successfully.",
@@ -711,6 +723,18 @@ class BookingController {
       // Save the booking only after all validations and calculations succeed
       await booking.save();
 
+      // Send real-time notification to the host about the booking update
+      const io = req.app.get("io");
+      const onlineUsers = req.app.get("onlineUsers");
+      const hostSocketId = onlineUsers.get(booking.hostId.toString());
+
+      if (hostSocketId) {
+        io.to(hostSocketId).emit("bookingUpdatedNotification", {
+          message: "The guest has updated the booking dates or details.",
+          bookingId: booking._id,
+        });
+      }
+
       // Return the updated booking with a clear success response
       return res.status(200).json({
         success: true,
@@ -924,6 +948,19 @@ class BookingController {
         await evaluateGuestBookingRestriction(booking.guestId);
     }
 
+    // Send real-time notification to the other party
+    const io = req.app.get("io");
+    const onlineUsers = req.app.get("onlineUsers");
+    const targetUserId = loggedInUserId === booking.guestId.toString() ? booking.hostId.toString() : booking.guestId.toString();
+    const targetSocketId = onlineUsers.get(targetUserId);
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("bookingCancelledNotification", {
+        message: "The booking has been cancelled by the other party.",
+        bookingId: booking._id,
+      });
+    }
+
     return res.status(200).json({
       success: true,
       message: "Booking cancelled successfully.",
@@ -985,6 +1022,18 @@ class BookingController {
 
       // ─── 5. Save the booking ────────────────────────
       await booking.save();
+
+      // Send real-time notification to the guest that the booking is confirmed
+      const io = req.app.get("io");
+      const onlineUsers = req.app.get("onlineUsers");
+      const guestSocketId = onlineUsers.get(booking.guestId.toString());
+
+      if (guestSocketId) {
+        io.to(guestSocketId).emit("bookingConfirmedNotification", {
+          message: "Your booking request has been confirmed by the host! You can proceed with payment.",
+          bookingId: booking._id,
+        });
+      }
 
       // ─── 6. Return success response ─────────────────
       return res.status(200).json({
@@ -1077,6 +1126,18 @@ class BookingController {
 
       // ─── 8. Save booking ────────────────────────────────
       await booking.save();
+
+      // Send real-time notification to the host that payment has been made
+      const io = req.app.get("io");
+      const onlineUsers = req.app.get("onlineUsers");
+      const hostSocketId = onlineUsers.get(booking.hostId.toString());
+
+      if (hostSocketId) {
+        io.to(hostSocketId).emit("bookingPaidNotification", {
+          message: "The guest has completed the payment and funds are now held.",
+          bookingId: booking._id,
+        });
+      }
 
       return res.status(200).json({
         success: true,
@@ -1177,6 +1238,18 @@ class BookingController {
         },
       );
 
+      // Send real-time notification to the guest that the stay is completed
+      const io = req.app.get("io");
+      const onlineUsers = req.app.get("onlineUsers");
+      const guestSocketId = onlineUsers.get(booking.guestId.toString());
+
+      if (guestSocketId) {
+        io.to(guestSocketId).emit("bookingCompletedNotification", {
+          message: "Your stay has successfully completed! We would love to hear your review.",
+          bookingId: booking._id,
+        });
+      }
+
       return res.status(200).json({
         success: true,
         message:
@@ -1245,6 +1318,18 @@ class BookingController {
       booking.rejectionReason = rejectionReason.trim();
 
       await booking.save();
+
+      // Send real-time notification to the guest about the rejection reason
+      const io = req.app.get("io");
+      const onlineUsers = req.app.get("onlineUsers");
+      const guestSocketId = onlineUsers.get(booking.guestId.toString());
+
+      if (guestSocketId) {
+        io.to(guestSocketId).emit("bookingRejectedNotification", {
+          message: `Your booking request was rejected. Reason: ${booking.rejectionReason}`,
+          bookingId: booking._id,
+        });
+      }
 
       return res.status(200).json({
         success: true,
