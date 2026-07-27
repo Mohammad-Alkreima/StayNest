@@ -1337,6 +1337,59 @@ class BookingController {
         data: booking,
       });
   };
+  // Get Booking By ID
+getBookingById = async (req, res) => {
+  const { id } = req.params;
+
+  const booking = await Booking.findOne({
+    _id: id,
+    isDeleted: false,
+  })
+    .populate(
+      "propertyId",
+      "title description location images amenities status maxGuests"
+    )
+    .populate("hostId", "name email")
+    .populate("guestId", "name email");
+
+  if (!booking) {
+    return res.status(404).json({
+      success: false,
+      message: "Booking not found.",
+    });
+  }
+
+  const loggedInUserId = req._user.id.toString();
+  const loggedInUserRole = req._user.role;
+
+  // Guest can view only their own booking
+  if (
+    loggedInUserRole === "guest" &&
+    booking.guestId._id.toString() !== loggedInUserId
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "You are not authorized to view this booking.",
+    });
+  }
+
+  // Host can view only bookings related to their own properties
+  if (
+    loggedInUserRole === "host" &&
+    booking.hostId._id.toString() !== loggedInUserId
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "You are not authorized to view this booking.",
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: "Booking retrieved successfully.",
+    data: booking,
+  });
+};
 }
 
 module.exports = new BookingController();
