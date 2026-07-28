@@ -33,7 +33,12 @@ const disputeSchema = new mongoose.Schema(
     },
     resolutionType: {
       type: String,
-      enum: ["fullRefund", "partialRefund", "releasePayment", "noRefund", null],
+      enum: [
+        "fullRefund",
+        "partialRefund",
+        "noRefund",
+        null,
+      ],
       default: null,
     },
     refundPercentage: {

@@ -13,6 +13,80 @@ const DISPUTE_WINDOW_HOURS = 24;
  * @param {Object} booking - Mongoose booking document
  * @returns {Promise<Object>}
  */
+const releaseHeldPayment = async (
+  booking,
+  excludedDisputeId = null,
+) => {
+  if (!booking) {
+    throw new Error("Booking is required.");
+  }
+
+  if (booking.status !== "completed") {
+    throw new Error(
+      "Only completed bookings can release payment.",
+    );
+  }
+
+  if (booking.payment?.status !== "held") {
+    throw new Error(
+      "Only held payments can be released.",
+    );
+  }
+
+  const disputeFilter = {
+    bookingId: booking._id,
+    status: {
+      $in: ["open", "in-progress"],
+    },
+  };
+
+  if (excludedDisputeId) {
+    disputeFilter._id = {
+      $ne: excludedDisputeId,
+    };
+  }
+
+  const activeDispute = await Dispute.findOne(disputeFilter);
+
+  if (activeDispute) {
+    throw new Error(
+      "Payment cannot be released because another active dispute exists.",
+    );
+  }
+
+  const paidAmount = booking.payment.amount;
+
+  if (!Number.isFinite(paidAmount) || paidAmount <= 0) {
+    throw new Error(
+      "The held payment amount is missing or invalid.",
+    );
+  }
+
+  const platformCommission = Number(
+    (paidAmount * PLATFORM_COMMISSION_RATE).toFixed(2),
+  );
+
+  const hostEarning = Number(
+    (paidAmount - platformCommission).toFixed(2),
+  );
+
+  booking.payment.status = "released";
+  booking.payment.platformCommission = platformCommission;
+  booking.payment.hostEarning = hostEarning;
+  booking.payment.refundPercentage = 0;
+  booking.payment.refundAmount = 0;
+  booking.payment.refundedAt = null;
+  booking.payment.releasedAt = new Date();
+
+  await booking.save();
+
+  return booking;
+};
+
+
+
+
+/*
 const releaseHeldPayment = async (booking) => {
   if (!booking) {
     throw new Error("Booking is required.");
@@ -49,6 +123,7 @@ const releaseHeldPayment = async (booking) => {
 
   return booking;
 };
+*/
 
 /**
  * Refund the entire held payment to the guest.
@@ -200,6 +275,61 @@ const applyDisputeResolution = async (dispute) => {
     );
   }
 
+  const resolutionType =
+    dispute.resolutionType?.trim();
+
+  console.log(
+    "PAYMENT SERVICE RESOLUTION TYPE:",
+    JSON.stringify(resolutionType),
+  );
+
+  const booking = await Booking.findOne({
+    _id: dispute.bookingId,
+    isDeleted: false,
+  });
+
+  if (!booking) {
+    throw new Error("Booking not found.");
+  }
+
+  switch (resolutionType) {
+    case "noRefund":
+      return releaseHeldPayment(
+        booking,
+        dispute._id,
+      );
+
+    case "fullRefund":
+      return refundHeldPayment(booking);
+
+    case "partialRefund":
+      return partialRefundHeldPayment(
+        booking,
+        dispute.refundPercentage,
+      );
+
+    default:
+      throw new Error(
+        `Unsupported dispute resolution type: ${JSON.stringify(
+          resolutionType,
+        )}`,
+      );
+  }
+};
+
+
+/*
+const applyDisputeResolution = async (dispute) => {
+  if (!dispute) {
+    throw new Error("Dispute is required.");
+  }
+
+  if (dispute.status !== "resolved") {
+    throw new Error(
+      "Payment resolution can only be applied to a resolved dispute.",
+    );
+  }
+
   const booking = await Booking.findOne({
     _id: dispute.bookingId,
     isDeleted: false,
@@ -231,6 +361,7 @@ const applyDisputeResolution = async (dispute) => {
       throw new Error("Unsupported dispute resolution type.");
   }
 };
+*/
 
 /**
  * Find completed bookings whose dispute window has ended

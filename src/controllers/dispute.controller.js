@@ -30,9 +30,9 @@ class DisputeController {
   }
 
   getDisputeById = async (req, res) => {
-    const { disputeId } = req.params;
+    const { id } = req.params;
 
-    const dispute = await Dispute.findById(disputeId);
+    const dispute = await Dispute.findById(id);
 
     if (!dispute) {
       return res
@@ -195,6 +195,123 @@ class DisputeController {
     });
   };
 
+resolveDispute = async (req, res) => {
+  const { id } = req.params;
+
+  const {
+    winner,
+    resolutionType,
+    refundPercentage,
+    adminNotes,
+  } = req.body;
+
+  // 1. Find the dispute.
+  const dispute = await Dispute.findById(id);
+
+  if (!dispute) {
+    return res.status(404).json({
+      success: false,
+      message: "Dispute not found.",
+    });
+  }
+
+  // 2. Prevent applying the financial decision twice.
+  if (dispute.status === "resolved") {
+    return res.status(409).json({
+      success: false,
+      message:
+        "This dispute has already been resolved.",
+    });
+  }
+
+  // 3. Validate the resolution type.
+  if (
+    typeof resolutionType !== "string" ||
+    !resolutionType.trim()
+  ) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "resolutionType must be provided when resolving a dispute.",
+    });
+  }
+
+  const normalizedResolutionType =
+    resolutionType.trim();
+
+  const allowedResolutionTypes = [
+    "fullRefund",
+    "partialRefund",
+    "noRefund",
+  ];
+
+  if (
+    !allowedResolutionTypes.includes(
+      normalizedResolutionType,
+    )
+  ) {
+    return res.status(400).json({
+      success: false,
+      message:
+        `Unsupported resolutionType: ${resolutionType}.`,
+    });
+  }
+
+  // 4. Validate partial refund percentage.
+  if (
+    normalizedResolutionType === "partialRefund" &&
+    (
+      !Number.isFinite(refundPercentage) ||
+      refundPercentage <= 0 ||
+      refundPercentage >= 100
+    )
+  ) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "refundPercentage must be greater than 0 and less than 100.",
+    });
+  }
+
+  // 5. Store the admin decision in memory.
+  dispute.status = "resolved";
+  dispute.resolutionType =
+    normalizedResolutionType;
+
+  if (winner !== undefined) {
+    dispute.winner = winner;
+  }
+
+  if (
+    normalizedResolutionType === "partialRefund"
+  ) {
+    dispute.refundPercentage =
+      refundPercentage;
+  } else {
+    dispute.refundPercentage = null;
+  }
+
+  if (adminNotes !== undefined) {
+    dispute.adminNotes = adminNotes;
+  }
+
+  // 6. Execute the financial result first.
+  await applyDisputeResolution(dispute);
+
+  // 7. Save the dispute only after payment succeeds.
+  await dispute.save();
+
+  return res.status(200).json({
+    success: true,
+    message:
+      "The dispute resolution has been updated successfully.",
+    data: dispute,
+  });
+};
+
+
+
+/*
   resolveDispute = async (req, res) => {
     const { id } = req.params;
     const {
@@ -246,6 +363,7 @@ class DisputeController {
       data: dispute,
     });
   };
+  */
 
   filterDisputes = async (req, res) => {
     const limit = req._limit;
