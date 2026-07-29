@@ -10,6 +10,8 @@ const xssSanitize = require("./middlewares/xss");
 const { default: mongoose } = require("mongoose");
 const updateVisibleReviews = require("./cron/reviewCron");
 
+const passport = require("passport");
+require("./utils/passport");
 
 const startBookingCompletionJob = require("./jobs/bookingCompletion.job");
 
@@ -23,6 +25,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(require("morgan")("dev"));
 app.use(cookies());
+app.use(passport.initialize());
 app.use(xssSanitize);
 
 // apis
