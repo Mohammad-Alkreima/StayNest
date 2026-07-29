@@ -182,21 +182,21 @@ class AuthController {
             return res.status(404).json({ message: "No user found with this email" });
         }
 
-        // create random token
-        const resetToken = crypto.randomBytes(32).toString("hex");
+        // create random OTP 6 digit
+        const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
 
         // encryption token using sha256 before save in database
         user.passwordResetToken = crypto.createHash("sha256").update(resetToken).digest("hex");
-        user.passwordResetExpires = Date.now() + 10 * 60 * 1000; // صلاحية 10 دقائق
+        user.passwordResetExpires = Date.now() + 10 * 60 * 1000; // expire 10 min
         
         await user.save();
 
         // send email
-        await sendEmail(user.email, "Password Reset", `Copy this token to change your password: ${resetToken}`);
+        await sendEmail(user.email, "Password Reset", `Your password reset OTP is: ${resetToken}. It is valid for 10 minutes.`);
 
         res.status(200).json({ 
-            token: resetToken,
-            message: "Token sent to email" });
+            message: "OTP sent to your email successfully" 
+        });
     };
 
     resetPassword = async (req, res) => {
@@ -236,8 +236,6 @@ class AuthController {
         cookiesService.setAccessToken(res, token);
         cookiesService.setRefreshToken(res, refreshToken);
 
-        // res.redirect(`${process.env.FRONTEND_URL}`);
-        // res.redirect('http://localhost:3000/api/health');
         res.redirect('http://localhost:3000/api/v1/auth/profile');
     };
 }
