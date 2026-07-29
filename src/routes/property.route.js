@@ -21,21 +21,21 @@ router.get(
 
 router.post(
   "/",
-  [auth, createPropertyValidation, roleMiddleware("host")],
+  [auth, createPropertyValidation, roleMiddleware(["host"])],
   asyncHandler(propertyController.createProperty),
 );
 
-router.post("/verfiyProperty", [auth, roleMiddleware("admin"), verfiyPropertyValidation], asyncHandler(propertyController.verifyProperty));
+router.post("/verfiyProperty", [auth, roleMiddleware(["admin"]), verfiyPropertyValidation], asyncHandler(propertyController.verifyProperty));
 
 router.put(
   "/:id",
-  [auth, idMiddleware, updatePropertyValidation, roleMiddleware("host")],
+  [auth, idMiddleware, updatePropertyValidation, roleMiddleware(["host"])],
   asyncHandler(propertyController.updateProperty),
 );
 
 router.delete(
   "/:id",
-  [auth, idMiddleware, roleMiddleware("host", "admin")],
+  [auth, idMiddleware, roleMiddleware(["host", "admin"])],
   asyncHandler(propertyController.deleteProperty),
 );
 

@@ -8,6 +8,7 @@ const {
 
 
 const LOYALTY_LEVELS = require("../constants/loyaltyLevels");
+const WEEKLY_DISCOUNT_PERCENTAGE = 5;
 
 class BookingController {
   getLoyaltyLevel = (totalBookings) => {
@@ -111,20 +112,42 @@ class BookingController {
       });
     }
 
-    // Calculate prices
-    const subtotal = numberOfNights * property.pricePerNight;
+    // Calculate the accommodation subtotal.
+    const subtotal =
+      numberOfNights * property.pricePerNight;
 
-    // Calculate the loyalty discount amount based on the guest's level
-    const discountAmount = subtotal * (loyaltyLevel.discountPercentage / 100);
+    // Get the guest's loyalty discount.
+    const loyaltyDiscountPercentage =
+      loyaltyLevel.discountPercentage;
 
-    // Calculate the final price after applying the discount
-    // The loyalty discount applies only to the subtotal,
-    // not to the cleaning fee or service fee.
-    const totalPrice =
-      subtotal -
-      discountAmount +
-      (property.cleaningFee || 0) +
-      (property.serviceFee || 0);
+    // Weekly discount applies only when:
+    // 1. The guest has no loyalty discount.
+    // 2. The stay is 7 nights or more.
+    const discountPercentage =
+      loyaltyDiscountPercentage > 0
+        ? loyaltyDiscountPercentage
+        : numberOfNights >= 7
+          ? WEEKLY_DISCOUNT_PERCENTAGE
+          : 0;
+
+    // The discount applies only to the accommodation subtotal,
+    // not to cleaning or service fees.
+    const discountAmount = Number(
+      (
+        subtotal *
+        (discountPercentage / 100)
+      ).toFixed(2),
+    );
+
+    // Calculate the final booking price.
+    const totalPrice = Number(
+      (
+        subtotal -
+        discountAmount +
+        (property.cleaningFee || 0) +
+        (property.serviceFee || 0)
+      ).toFixed(2),
+    );
 
       // Calculate the platform commission and host earning
       // at the time the booking is created.
@@ -156,7 +179,7 @@ class BookingController {
 
         subtotal,
 
-        discountPercentage: loyaltyLevel.discountPercentage,
+        discountPercentage,
 
         discountAmount,
 
@@ -657,6 +680,25 @@ class BookingController {
           });
         }
 
+        // Get the guest's current loyalty level.
+        // Booking updates are allowed only while the booking is pending,
+        // so the final price can be recalculated before payment.
+        const guest = await User.findById(booking.guestId);
+
+        if (!guest) {
+          return res.status(404).json({
+            success: false,
+            message: "Guest not found.",
+          });
+        }
+
+        const loyaltyLevel = this.getLoyaltyLevel(
+          guest.totalBookings || 0,
+        );
+
+        const loyaltyDiscountPercentage =
+          loyaltyLevel.discountPercentage;
+
         // ─── 10. Recalculate the booking price using the stored snapshot ────
         // Get the stored pricing snapshot created when the booking was first made
         const pricingSnapshot = booking.pricingSnapshot;
@@ -681,19 +723,38 @@ class BookingController {
           });
         }
 
-        // Recalculate the accommodation subtotal using the original nightly price
-        const subtotal = numberOfNights * pricingSnapshot.pricePerNight;
+       // Recalculate the accommodation subtotal using
+        // the original nightly price stored in the snapshot.
+        const subtotal =
+          numberOfNights * pricingSnapshot.pricePerNight;
 
-        // Preserve the original loyalty discount percentage
-        const discountAmount =
-          subtotal * (pricingSnapshot.discountPercentage / 100);
+        // Loyalty discount always has priority.
+        // Weekly discount applies only when the guest has
+        // no loyalty discount and stays 7 nights or more.
+        const discountPercentage =
+          loyaltyDiscountPercentage > 0
+            ? loyaltyDiscountPercentage
+            : numberOfNights >= 7
+              ? WEEKLY_DISCOUNT_PERCENTAGE
+              : 0;
 
-        // Recalculate the final price
-        const totalPrice =
-          subtotal -
-          discountAmount +
-          pricingSnapshot.cleaningFee +
-          pricingSnapshot.serviceFee;
+        // Recalculate the discount amount.
+        const discountAmount = Number(
+          (
+            subtotal *
+            (discountPercentage / 100)
+          ).toFixed(2),
+        );
+
+        // Recalculate the final price.
+        const totalPrice = Number(
+          (
+            subtotal -
+            discountAmount +
+            pricingSnapshot.cleaningFee +
+            pricingSnapshot.serviceFee
+          ).toFixed(2),
+        );
 
           // Recalculate the platform commission and host earning
           const PLATFORM_COMMISSION_RATE = 0.1;
@@ -712,11 +773,23 @@ class BookingController {
         booking.numberOfNights = numberOfNights;
 
         // Update only the calculated values inside the pricing snapshot
-        booking.pricingSnapshot.subtotal = subtotal;
-        booking.pricingSnapshot.discountAmount = discountAmount;
-        booking.pricingSnapshot.totalPrice = totalPrice;
-        booking.payment.platformCommission = platformCommission;
-        booking.payment.hostEarning = hostEarning;
+        booking.pricingSnapshot.subtotal =
+          subtotal;
+
+        booking.pricingSnapshot.discountPercentage =
+          discountPercentage;
+
+        booking.pricingSnapshot.discountAmount =
+          discountAmount;
+
+        booking.pricingSnapshot.totalPrice =
+          totalPrice;
+
+        booking.payment.platformCommission =
+          platformCommission;
+
+        booking.payment.hostEarning =
+          hostEarning;
       } // End of hasDateUpdate
 
       // ─── 12. Save the updated booking ─────────────────────────────────────
