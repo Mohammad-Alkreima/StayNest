@@ -101,6 +101,24 @@ class ReviewContoller {
                                         path: "reviewerId",
                                         select: "name role"
                                     })
+                                    .populate({
+                                        path: "bookingId",
+                                        select: "guestId",
+                                        populate: [
+                                            {
+                                                path: "guestId",
+                                                select: "name"
+                                            },
+                                            {
+                                                path: "proprtyId",
+                                                select: "hostId",
+                                                populate: {
+                                                    path: "hostId",
+                                                    select: "name"
+                                                }
+                                            }
+                                        ]
+                                    })
                                     .skip(skip).limit(limit);
         return res.status(200).json({
             message: "Get All Reviews",
