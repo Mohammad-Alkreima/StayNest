@@ -52,7 +52,7 @@ class AuthController {
         }
 
         if (user.isOAuthUser && !user.password) {
-            return res.status(400).json({ message: "يرجى تسجيل الدخول باستخدام حساب جوجل" });
+            return res.status(400).json({ message: "Please sign in using your Google account." });
         }
 
         if(user.blocked) {
@@ -228,7 +228,7 @@ class AuthController {
     };
 
     googleCallback = async (req, res) => {
-        const user = req.user; // يأتي من passport
+        const user = req.user; // comes from passport
 
         const token = jwtService.generateAccessToken({ id: user._id, email: user.email, role: user.role });
         const refreshToken = jwtService.generateRefreshToken({ id: user._id, email: user.email, role: user.role });
