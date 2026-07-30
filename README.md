@@ -632,11 +632,15 @@ Create a new booking.
 | `endDate` | string | yes | Must be after startDate |
 
 On creation:
-- Loyalty discount calculated based on guest's totalBookings
-- Pricing snapshot stored (price per night, fees, subtotal, discount, total)
-- Platform commission (10%) and host earnings calculated
-- Booking status: `pending`
-- Real-time notification sent to host via Socket.io
+- Loyalty discount is calculated based on the guest's completed bookings.
+- If the guest has no loyalty discount and the stay is 7 nights or more, a 5% weekly discount is applied.
+- Loyalty and weekly discounts are not combined; the loyalty discount takes priority when available.
+- The discount applies only to the accommodation subtotal, before cleaning and service fees.
+- A pricing snapshot is stored using the property price and fees at booking time.
+- Platform commission (10%) and host earnings are calculated.
+- Booking status is set to `pending`.
+- Payment status is set to `unpaid`.
+- A real-time notification is sent to the host via Socket.io.
 
 ---
 
@@ -646,11 +650,10 @@ Get bookings (role-based filtering).
 
 | Query | Description |
 |-------|-------------|
-| `status` | pending / confirmed / completed / cancelled / expired |
-| `paymentStatus` | unpaid / held / released / refunded |
+| `status` | pending / confirmed / rejected / expired / cancelled / completed |
+| `paymentStatus` | Filter by payment status |
 | `type` | upcoming / ongoing / past |
-| `sort` | newest / oldest / checkIn / price |
-| `page`, `limit` | Pagination |
+| `sort` | newest / oldest / checkInSoonest / checkInLatest / priceHigh / priceLow |
 
 Guest sees their own bookings, host sees received bookings, admin sees all.
 
@@ -663,15 +666,29 @@ Host earnings dashboard.
 **Response:**
 ```json
 {
-  "totalBookings": 10,
-  "totalRevenue": 5000,
-  "totalCommission": 500,
-  "totalEarnings": 4500,
-  "monthly": [
-    { "month": "2026-07", "bookings": 3, "revenue": 1500, "earnings": 1350 }
-  ]
+  "success": true,
+  "data": {
+    "summary": {
+      "totalBookings": 10,
+      "totalRevenue": 5000,
+      "totalPlatformCommission": 500,
+      "totalHostEarnings": 4500
+    },
+    "monthlyBreakdown": [
+      {
+        "year": 2026,
+        "month": 7,
+        "bookingsCount": 3,
+        "monthlyRevenue": 1500,
+        "monthlyPlatformCommission": 150,
+        "monthlyHostEarnings": 1350
+      }
+    ]
+  }
 }
 ```
+Only completed bookings with `payment.status = released` are included in the earnings report.
+
 
 ---
 
@@ -681,8 +698,18 @@ Get a single booking by ID.
 ---
 
 #### `PATCH /:id`
-Update booking dates — guest only, `pending` status only.
+Update booking dates.
 - **Auth required** — role `guest`
+- Only the guest who owns the booking can update it.
+- Only `pending` bookings can be updated.
+- `startDate` and/or `endDate` can be updated.
+- The final start date cannot be in the past.
+- `endDate` must be after `startDate`.
+- The property must still exist and have `available` status.
+- The new date range must not overlap another `pending` or `confirmed` booking.
+- Pricing is recalculated using the original nightly price and fees stored in the booking's pricing snapshot, so later property price changes do not affect the booking.
+- Loyalty/weekly discount rules are recalculated based on the new number of nights.
+- Platform commission and host earnings are recalculated from the new total price.
 
 ---
 
@@ -697,6 +724,13 @@ Refund policy:
 
 Evaluates guest booking restriction (blocks after 5 confirmed cancellations in 30 days).
 
+For paid bookings:
+- >= 7 days before check-in: 100% refund.
+- 2–6 days before check-in: 50% refund, with the remaining amount released to the host.
+- < 2 days before check-in: no refund, and the held payment is released to the host.
+
+Pending unpaid bookings can also be cancelled without a refund operation.
+
 ---
 
 #### `PATCH /:id/confirm`
@@ -709,7 +743,7 @@ Confirm a booking — host or admin.
 Pay for a booking — guest.
 - **Auth required** — role `guest`
 
-Payment status set to `held` (escrow) until booking completion.
+After successful payment, the payment status is set to `held` (escrow) and remains held through booking completion and the dispute window.
 
 ---
 
@@ -839,7 +873,7 @@ Resolve a dispute — admin.
 |-------|------|-------------|
 | `status` | string | `resolved` |
 | `winner` | string | `guest` or `host` |
-| `resolutionType` | string | `fullRefund` / `partialRefund` / `releasePayment` / `noRefund` |
+| `resolutionType` | string | `fullRefund` / `partialRefund` / `noRefund` |
 | `refundPercentage` | number | 0-100 |
 | `refundAmount` | number | |
 | `adminNotes` | string | max 1000 characters |
@@ -905,8 +939,12 @@ Upload files to Cloudinary.
 | `numberOfNights` | Number | |
 | `pricingSnapshot` | Object | Contains pricePerNight, cleaningFee, serviceFee, subtotal, discountPercentage, discountAmount, totalPrice |
 | `status` | String | pending / confirmed / rejected / expired / cancelled / completed |
-| `payment` | Object | Contains status (unpaid/held/released/refunded), method, amount, commission, earning |
-| `cancellation` | Object | Contains reason, cancelledBy, cancelledByRole, cancelledAt |
+| `payment` | Object | Contains status (unpaid/held/released/refunded/partially_refunded), method, amount, platformCommission, hostEarning, refundPercentage, refundAmount, paidAt, releasedAt, refundedAt |
+| `cancelledFromStatus` | String | Booking status before cancellation |
+| `cancelledAt` | Date | Cancellation timestamp |
+| `cancelledBy` | ref User | User who cancelled the booking |
+| `cancelledByRole` | String | Role of the user who cancelled |
+| `cancellationReason` | String | Optional cancellation reason |
 
 ### Review
 | Field | Type | Description |
@@ -930,7 +968,7 @@ Upload files to Cloudinary.
 | `type` | String | host-to-guest / guest-to-host |
 | `reason` | String | |
 | `winner` | String | guest / host / null |
-| `resolutionType` | String | fullRefund / partialRefund / releasePayment / noRefund |
+| `resolutionType` | String | fullRefund / partialRefund / noRefund |
 | `refundPercentage` | Number | |
 | `refundAmount` | Number | |
 | `status` | String | open / in-progress / resolved |
@@ -956,11 +994,13 @@ Upload files to Cloudinary.
 - Soft delete with safety checks
 
 ### 3. Bookings
-- Date conflict prevention (compound unique index)
+- Date conflict prevention using date-range overlap checks against active `pending` and `confirmed` bookings
 - Pricing snapshot stored on creation
 - Loyalty discount: Platinum 15%, Gold 10%, Silver 5%
+- Weekly discount: 5% for stays of 7 nights or more when the guest has no loyalty discount; discounts are not stacked
 - Platform commission: 10%
-- Multi-status workflow: pending → confirmed/rejected → paid (held) → completed
+- Booking lifecycle: pending → confirmed / rejected / cancelled / expired → completed when applicable
+- Payment lifecycle is tracked separately: unpaid → held → released / refunded / partially_refunded depending on the financial outcome
 - Modification and cancellation with time-based refund policy
 - Guest restriction after 5 confirmed cancellations (30-day block)
 
@@ -971,7 +1011,11 @@ Upload files to Cloudinary.
 - Edit only before visibility
 
 ### 5. Payment Escrow
-- Payment held on booking
+- Payment starts with `unpaid` status when the booking is created.
+- Only a confirmed booking can be paid.
+- After successful payment, the payment status becomes `held`.
+- Held funds remain in escrow through the stay and the dispute window.
+- Funds may later be released or refunded according to cancellation/dispute rules.
 - Auto-release 24 hours after completion
 - Full/partial refund based on cancellation policy
 - Financial execution for dispute resolution
@@ -979,7 +1023,7 @@ Upload files to Cloudinary.
 ### 6. Disputes
 - Create within 24 hours of completion
 - Admin resolution with financial outcome
-- Supports full refund, partial refund, payment release, no refund
+- Supports full refund, partial refund, and no refund
 
 ### 7. Scheduled Jobs (Cron)
 | Job | Interval | Action |
@@ -1039,3 +1083,8 @@ Refer to `RULES.md` for detailed conventions on:
 
 ## Documentation
 - [Postman Documentation](https://documenter.getpostman.com/view/49267230/2sBY4Mt1BW)
+
+### Additional Booking Regression Tests
+In addition to the main API documentation above, this collection provides extra regression tests for the Booking module, covering recent updates and additional business scenarios.
+
+Postman Collection: [View Final Regression Tests](https://documenter.getpostman.com/view/54437524/2sBY4SNexK)
